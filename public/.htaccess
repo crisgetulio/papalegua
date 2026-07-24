@@ -1,0 +1,4 @@
+Options +Indexes +FollowSymLinks
+Require all granted
+DirectoryIndex index.html index.php
+DirectoryIndex files.html 

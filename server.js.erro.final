@@ -1,0 +1,1309 @@
+require('dotenv').config();
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const session = require('express-session');
+const bcrypt = require('bcrypt');
+const Database = require('better-sqlite3');
+const multer = require('multer');
+const fs = require('fs-extra');
+const path = require('path');
+const crypto = require('crypto');
+const admin = require('firebase-admin');
+const { OAuth2Client } = require('google-auth-library');
+const SqliteStore = require('better-sqlite3-session-store')(session);
+
+// ===== GOOGLE SIGN-IN =====
+// Client ID tipo "Web" criado no Google Cloud Console (não o tipo Android).
+// É esse mesmo Client ID que deve ser usado como serverClientId no app Android.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, { pingTimeout: 120000, pingInterval: 25000 });
+
+app.set('trust proxy', 1);
+
+const BASE_DIR = __dirname;
+const DATA_DIR = path.join(BASE_DIR, 'data');
+const UPLOAD_DIR = path.join(BASE_DIR, 'uploads');
+const AVATAR_DIR = path.join(UPLOAD_DIR, 'avatars');
+const PRIVATE_UPLOADS_DIR = path.join(BASE_DIR, 'private_uploads');
+const PUBLIC_DIR = path.join(BASE_DIR, 'public');
+const LOGO_DIR = path.join(DATA_DIR, 'logo');
+const DB_PATH = path.join(DATA_DIR, 'users.db');
+const MSG_FILE = path.join(DATA_DIR, 'messages.json');
+const NOTICE_FILE = path.join(DATA_DIR, 'notice.json');
+const VERSION_FILE = path.join(DATA_DIR, 'version.json');
+
+[DATA_DIR, UPLOAD_DIR, AVATAR_DIR, PRIVATE_UPLOADS_DIR, PUBLIC_DIR, LOGO_DIR].forEach(dir => {
+    fs.ensureDirSync(dir);
+    try { fs.chmodSync(dir, 0o755); } catch(e) {}
+});
+
+const db = new Database(DB_PATH);
+
+try {
+    if (fs.existsSync('./firebase-service-account.json')) {
+        admin.initializeApp({ credential: admin.credential.cert(require('./firebase-service-account.json')) });
+    }
+} catch(e) { console.log('Firebase não configurado'); }
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        phone TEXT DEFAULT '',
+        address TEXT DEFAULT '',
+        password_hash TEXT NOT NULL,
+        avatar_url TEXT DEFAULT '/uploads/avatars/default.png',
+        fcm_token TEXT DEFAULT '',
+        google_id TEXT DEFAULT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS read_receipts (
+        user_id INTEGER NOT NULL,
+        other_user_id INTEGER NOT NULL,
+        last_read_id INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, other_user_id)
+    );
+    CREATE TABLE IF NOT EXISTS push_tokens (
+        user_id INTEGER NOT NULL,
+        token TEXT UNIQUE NOT NULL,
+        PRIMARY KEY (user_id, token)
+    );
+    CREATE TABLE IF NOT EXISTS private_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user_id INTEGER NOT NULL,
+        to_user_id INTEGER NOT NULL,
+        text TEXT,
+        type TEXT DEFAULT 'text',
+        url TEXT,
+        audio_url TEXT,
+        name TEXT,
+        size INTEGER,
+        reply_to_id INTEGER,
+        reply_to_text TEXT,
+        reply_to_sender TEXT,
+        timestamp TEXT DEFAULT (datetime('now')),
+        edited INTEGER DEFAULT 0,
+        deleted INTEGER DEFAULT 0,
+        FOREIGN KEY (from_user_id) REFERENCES users(id),
+        FOREIGN KEY (to_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_private_messages_from_to ON private_messages(from_user_id, to_user_id);
+    CREATE INDEX IF NOT EXISTS idx_private_messages_to_from ON private_messages(to_user_id, from_user_id);
+    CREATE INDEX IF NOT EXISTS idx_private_messages_timestamp ON private_messages(timestamp);
+`);
+
+// Migração: garante a coluna google_id em bancos já existentes
+try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL`); } catch(e) { /* coluna já existe */ }
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL`); } catch(e) {}
+
+const defaultAvatarSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#1f2937"/><circle cx="50" cy="38" r="18" fill="#d4af37" opacity="0.8"/><ellipse cx="50" cy="80" rx="28" ry="20" fill="#d4af37" opacity="0.8"/></svg>`;
+const defaultAvatarPath = path.join(AVATAR_DIR, 'default.svg');
+if (!fs.existsSync(defaultAvatarPath)) fs.writeFileSync(defaultAvatarPath, defaultAvatarSVG);
+const defaultAvatarPng = path.join(AVATAR_DIR, 'default.png');
+if (!fs.existsSync(defaultAvatarPng)) {
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    fs.writeFileSync(defaultAvatarPng, Buffer.from(pngBase64, 'base64'));
+}
+
+// ===== RECADOS =====
+let notice = null;
+if (fs.existsSync(NOTICE_FILE)) {
+    try { notice = fs.readJsonSync(NOTICE_FILE); } catch(e) { notice = null; }
+}
+function saveNotice(data) {
+    notice = data;
+    try { fs.writeJsonSync(NOTICE_FILE, data); } catch(e) { console.error('Erro ao salvar recado:', e); }
+}
+
+// ===== VERSÃO =====
+let versionInfo = null;
+function loadVersion() {
+    try {
+        if (fs.existsSync(VERSION_FILE)) {
+            versionInfo = fs.readJsonSync(VERSION_FILE);
+        } else {
+            versionInfo = { 
+                version: "1.0.0", 
+                versionCode: 1, 
+                apkUrl: "", 
+                releaseNotes: "", 
+                forced: false,
+                updatedAt: new Date().toISOString()
+            };
+            fs.writeJsonSync(VERSION_FILE, versionInfo, { spaces: 2 });
+        }
+    } catch(e) {
+        console.error('Erro ao carregar versão:', e);
+        versionInfo = { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false };
+    }
+    return versionInfo;
+}
+function saveVersion(data) {
+    versionInfo = data;
+    try { fs.writeJsonSync(VERSION_FILE, data, { spaces: 2 }); } catch(e) { console.error('Erro ao salvar versão:', e); }
+}
+loadVersion();
+
+// ===== MENSAGENS PÚBLICAS =====
+let messages = [];
+if (fs.existsSync(MSG_FILE)) {
+    try { messages = fs.readJsonSync(MSG_FILE); if (messages.length > 500) messages = messages.slice(-500); } catch(e) { messages = []; }
+}
+function saveMessages() {
+    if (messages.length > 500) messages = messages.slice(-500);
+    try { fs.writeJsonSync(MSG_FILE, messages); } catch(e) { console.error('Erro ao salvar mensagens:', e); }
+}
+
+// ===== SESSÃO =====
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const isProduction = process.env.NODE_ENV === 'production';
+const sessionMiddleware = session({
+    store: new SqliteStore({
+        client: db,
+        expired: { clear: true, intervalMs: 900000 }
+    }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: {
+        maxAge: 365 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'none',
+        secure: true
+    }
+});
+
+app.use(sessionMiddleware);
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/logo', express.static(LOGO_DIR));
+app.use('/apk', express.static(path.join(PUBLIC_DIR, 'apk')));
+app.use(express.static(PUBLIC_DIR));
+
+function requireAuth(req, res, next) {
+    if (!req.session?.userId) {
+        console.error('401 Não autenticado em', req.method, req.path);
+        return res.status(401).json({ error: 'Não autenticado' });
+    }
+    next();
+}
+
+function isAdmin(userId) {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    return adminUser && adminUser.id === userId;
+}
+
+// ===== ROTA PARA BUSCAR DADOS DE UM USUÁRIO ESPECÍFICO =====
+app.get('/api/user/:id', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json(user);
+});
+
+// ===== ROTAS DE RECADOS =====
+app.get('/api/notice', (req, res) => {
+    res.json(notice || { active: false, message: '' });
+});
+
+app.post('/api/notice', requireAuth, (req, res) => {
+    const { message, active } = req.body;
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode criar recados' });
+    }
+    const data = {
+        active: active !== undefined ? active : true,
+        message: message || '',
+        updatedAt: new Date().toISOString(),
+        createdBy: req.session.userId
+    };
+    saveNotice(data);
+    io.emit('notice update', data);
+    res.json({ success: true, notice: data });
+});
+
+app.delete('/api/notice', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode remover recados' });
+    }
+    saveNotice(null);
+    io.emit('notice update', null);
+    res.json({ success: true });
+});
+
+// ===== ROTAS DE VERSÃO =====
+app.get('/api/version', (req, res) => {
+    const clientVersionCode = parseInt(req.query.versionCode || req.query.vc || 0);
+    const current = versionInfo || { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false };
+    const hasUpdate = current.versionCode > clientVersionCode;
+    res.json({
+        version: current.version,
+        versionCode: current.versionCode,
+        apkUrl: current.apkUrl || null,
+        releaseNotes: current.releaseNotes || '',
+        forced: current.forced || false,
+        hasUpdate: hasUpdate,
+        currentVersion: clientVersionCode
+    });
+});
+
+app.get('/api/admin/version', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode acessar' });
+    }
+    res.json(versionInfo || { version: "1.0.0", versionCode: 1 });
+});
+
+app.post('/api/admin/version', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode gerenciar versões' });
+    }
+    const { version, versionCode, releaseNotes, forced } = req.body;
+    if (!version || !versionCode) {
+        return res.status(400).json({ error: 'Versão e código de versão são obrigatórios' });
+    }
+    const data = {
+        version: version,
+        versionCode: parseInt(versionCode),
+        apkUrl: versionInfo?.apkUrl || '',
+        releaseNotes: releaseNotes || '',
+        forced: forced || false,
+        updatedAt: new Date().toISOString()
+    };
+    saveVersion(data);
+    io.emit('new version', { 
+        version: data.version, 
+        versionCode: data.versionCode,
+        releaseNotes: data.releaseNotes,
+        forced: data.forced,
+        apkUrl: data.apkUrl
+    });
+    res.json({ success: true, version: data });
+});
+
+const apkUpload = multer({
+    dest: path.join(PUBLIC_DIR, 'apk'),
+    limits: { fileSize: 100 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/vnd.android.package-archive' || file.originalname.endsWith('.apk')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Apenas arquivos .apk são permitidos'));
+        }
+    }
+});
+
+app.post('/api/admin/upload-apk', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode fazer upload' });
+    }
+    apkUpload.single('apk')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+        const ext = path.extname(req.file.originalname);
+        const newName = `papalegua-${Date.now()}${ext}`;
+        const newPath = path.join(PUBLIC_DIR, 'apk', newName);
+        try {
+            fs.moveSync(req.file.path, newPath, { overwrite: true });
+            if (versionInfo) {
+                versionInfo.apkUrl = `/apk/${newName}`;
+                saveVersion(versionInfo);
+            }
+            res.json({ success: true, url: `/apk/${newName}`, filename: newName });
+        } catch(e) {
+            res.status(500).json({ error: 'Erro ao salvar arquivo: ' + e.message });
+        }
+    });
+});
+
+// ===== ROTAS DE AUTENTICAÇÃO =====
+app.get('/', (req, res) => {
+    if (req.session?.userId) res.redirect('/contacts.html');
+    else res.redirect('/login.html');
+});
+
+app.post('/api/register', async (req, res) => {
+    try {
+        let { username, email, phone, address, password } = req.body;
+        username = (username || '').trim();
+        email = (email || '').trim().toLowerCase();
+        phone = (phone || '').trim();
+        address = (address || '').trim();
+        password = (password || '').trim();
+
+        if (!username || !email || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+        if (username.length < 3) return res.status(400).json({ error: 'Usuário deve ter ao menos 3 caracteres' });
+        if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+        const hash = await bcrypt.hash(password, 10);
+        db.prepare(`INSERT INTO users (username, email, phone, address, password_hash) VALUES (?,?,?,?,?)`)
+          .run(username, email, phone, address, hash);
+        res.json({ success: true });
+    } catch(e) {
+        if (e.message.includes('UNIQUE')) {
+            if (e.message.includes('username')) return res.status(400).json({ error: 'Nome de usuário já em uso' });
+            if (e.message.includes('email')) return res.status(400).json({ error: 'E-mail já cadastrado' });
+        }
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Credenciais inválidas' });
+    const user = db.prepare(`SELECT * FROM users WHERE username = ? OR email = ?`).get(username.trim(), username.trim().toLowerCase());
+    if (!user) return res.status(401).json({ error: 'Credenciais inválidas' });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Credenciais inválidas' });
+    req.session.userId = user.id;
+    req.session.save(err => {
+        if (err) return res.status(500).json({ error: 'Erro interno' });
+        res.json({ success: true, user: { id: user.id, username: user.username, avatar: user.avatar_url } });
+    });
+});
+
+app.post('/api/auth/google', async (req, res) => {
+    try {
+        if (!googleClient) return res.status(500).json({ error: 'Login com Google não configurado no servidor' });
+        const { idToken } = req.body;
+        if (!idToken) return res.status(400).json({ error: 'idToken obrigatório' });
+
+        const ticket = await googleClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
+        const payload = ticket.getPayload();
+        if (!payload || !payload.email_verified) {
+            return res.status(401).json({ error: 'Conta Google não verificada' });
+        }
+
+        const googleId = payload.sub;
+        const email = payload.email.toLowerCase();
+        const name = payload.name || email.split('@')[0];
+
+        let user = db.prepare(`SELECT * FROM users WHERE google_id = ?`).get(googleId);
+
+        if (!user) {
+            // Já existe conta com esse e-mail (criada por usuário/senha)? Vincula a conta Google a ela.
+            user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+            if (user) {
+                db.prepare(`UPDATE users SET google_id = ? WHERE id = ?`).run(googleId, user.id);
+            } else {
+                // Cria conta nova. Username único a partir do nome do Google.
+                let username = name.replace(/[^a-zA-Z0-9_]/g, '').substring(0, 20) || 'user';
+                let finalUsername = username;
+                let suffix = 1;
+                while (db.prepare(`SELECT id FROM users WHERE username = ?`).get(finalUsername)) {
+                    finalUsername = `${username}${suffix++}`;
+                }
+                const randomPasswordHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+                const info = db.prepare(
+                    `INSERT INTO users (username, email, password_hash, google_id) VALUES (?, ?, ?, ?)`
+                ).run(finalUsername, email, randomPasswordHash, googleId);
+                user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(info.lastInsertRowid);
+            }
+        }
+
+        req.session.userId = user.id;
+        req.session.save(err => {
+            if (err) return res.status(500).json({ error: 'Erro interno' });
+            res.json({ success: true, user: { id: user.id, username: user.username, avatar: user.avatar_url } });
+        });
+    } catch (e) {
+        console.error('Erro no login Google:', e.message);
+        res.status(401).json({ error: 'Token do Google inválido' });
+    }
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+    const user = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(req.session.userId);
+    res.json(user);
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(() => res.clearCookie('connect.sid').json({ success: true }));
+});
+
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const avatarUpload = multer({
+    dest: AVATAR_DIR,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (ALLOWED_TYPES.includes(file.mimetype)) cb(null, true);
+        else cb(new Error('Tipo de arquivo não permitido'));
+    }
+});
+
+app.post('/api/user/update', requireAuth, (req, res) => {
+    avatarUpload.single('avatar')(req, res, async (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Imagem muito grande (máx 5MB)' });
+            return res.status(400).json({ error: err.message });
+        }
+        let { username, email, phone, address, password } = req.body;
+        username = (username || '').trim();
+        email = (email || '').trim().toLowerCase();
+        phone = (phone || '').trim();
+        address = (address || '').trim();
+        password = (password || '').trim();
+
+        const userId = req.session.userId;
+        if (!username || !email) return res.status(400).json({ error: 'Nome e e-mail obrigatórios' });
+        try {
+            db.prepare(`UPDATE users SET username = ?, email = ?, phone = ?, address = ? WHERE id = ?`)
+              .run(username, email, phone, address, userId);
+            if (req.file) {
+                const ext = req.file.mimetype.split('/')[1].replace('jpeg','jpg');
+                const finalName = `avatar_${userId}_${Date.now()}.${ext}`;
+                const finalPath = path.join(AVATAR_DIR, finalName);
+                fs.moveSync(req.file.path, finalPath, { overwrite: true });
+                const avatarUrl = `/uploads/avatars/${finalName}`;
+                db.prepare(`UPDATE users SET avatar_url = ? WHERE id = ?`).run(avatarUrl, userId);
+            }
+            if (password) {
+                if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+                const hash = await bcrypt.hash(password, 10);
+                db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, userId);
+            }
+            const updatedUser = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(userId);
+            res.json({ success: true, user: updatedUser });
+        } catch (dbErr) {
+            if (dbErr.message.includes('UNIQUE')) {
+                if (dbErr.message.includes('username')) return res.status(400).json({ error: 'Nome de usuário já em uso' });
+                if (dbErr.message.includes('email')) return res.status(400).json({ error: 'E-mail já cadastrado' });
+            }
+            res.status(400).json({ error: 'Erro ao atualizar: ' + dbErr.message });
+        }
+    });
+});
+
+app.delete('/api/user/delete', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    try {
+        db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+        req.session.destroy(() => {
+            res.clearCookie('connect.sid');
+            res.json({ success: true });
+        });
+    } catch(e) { res.status(500).json({ error: 'Erro ao excluir conta' }); }
+});
+
+app.get('/api/users', requireAuth, (req, res) => {
+    const users = db.prepare(`SELECT id, username, avatar_url FROM users WHERE id != ? ORDER BY username ASC`).all(req.session.userId);
+    res.json(users);
+});
+
+app.get('/api/users/status', requireAuth, (req, res) => {
+    const ids = req.query.ids ? req.query.ids.split(',').map(Number).filter(n => !isNaN(n)) : [];
+    const status = {};
+    ids.forEach(id => { status[id] = onlineUsers.has(id); });
+    res.json(status);
+});
+
+app.post('/api/register-push-token', requireAuth, (req, res) => {
+    const { token } = req.body;
+    const userId = req.session.userId;
+    if (!token) return res.status(400).json({ error: 'Token obrigatório' });
+    try {
+        // O envio de push (sendPushNotification / socket 'private message') lê de users.fcm_token,
+        // então é essa coluna que precisa ser atualizada (antes só ia pra push_tokens e nunca era lida).
+        db.prepare(`UPDATE users SET fcm_token = ? WHERE id = ?`).run(token, userId);
+        db.prepare(`INSERT OR REPLACE INTO push_tokens (user_id, token) VALUES (?, ?)`).run(userId, token);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/private-messages', requireAuth, (req, res) => {
+    const { withUserId, limit = 100, before } = req.query;
+    if (!withUserId) return res.status(400).json({ error: 'withUserId obrigatório' });
+    const currentId = req.session.userId;
+    const otherId = parseInt(withUserId);
+    let query = `SELECT * FROM private_messages WHERE 
+        (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)`;
+    const params = [currentId, otherId, otherId, currentId];
+    if (before) {
+        query += ` AND id < ?`;
+        params.push(parseInt(before));
+    }
+    query += ` ORDER BY id DESC LIMIT ?`;
+    params.push(parseInt(limit));
+    const msgs = db.prepare(query).all(...params).reverse();
+    const receipt = db.prepare(`SELECT last_read_id FROM read_receipts WHERE user_id = ? AND other_user_id = ?`).get(otherId, currentId);
+    const otherLastRead = receipt ? receipt.last_read_id : 0;
+    const enriched = msgs.map(msg => {
+        msg.read = msg.from_user_id === currentId ? msg.id <= otherLastRead : false;
+        msg.fromUserId = msg.from_user_id;
+        msg.toUserId = msg.to_user_id;
+        return msg;
+    });
+    res.json(enriched);
+});
+
+app.get('/api/unread-counts', requireAuth, (req, res) => {
+    const myId = req.session.userId;
+    const stmt = db.prepare(`
+        SELECT from_user_id, COUNT(*) as count FROM private_messages 
+        WHERE to_user_id = ? AND id > COALESCE(
+            (SELECT last_read_id FROM read_receipts WHERE user_id = ? AND other_user_id = from_user_id), 0
+        )
+        GROUP BY from_user_id
+    `);
+    const rows = stmt.all(myId, myId);
+    const counts = {};
+    rows.forEach(row => { counts[row.from_user_id] = row.count; });
+    res.json(counts);
+});
+
+app.post('/api/mark-read', requireAuth, (req, res) => {
+    const { withUserId, lastMessageId } = req.body;
+    if (!withUserId || !lastMessageId) return res.status(400).json({ error: 'Parâmetros obrigatórios' });
+    const myId = req.session.userId;
+    db.prepare(`INSERT OR REPLACE INTO read_receipts (user_id, other_user_id, last_read_id) VALUES (?, ?, ?)`).run(myId, parseInt(withUserId), parseInt(lastMessageId));
+    res.json({ success: true });
+});
+
+const uploadTracker = new Map();
+
+app.post('/upload-chunk', requireAuth, (req, res) => {
+    const { fileId, chunkIndex, totalChunks, fileName, fileSize, chunk, isPrivate } = req.body;
+    const userId = req.session.userId;
+    if (!fileId) return res.status(400).json({ error: 'fileId obrigatório' });
+    
+    const now = Date.now();
+    for (let [key, time] of uploadTracker) {
+        if (now - time > 300000) uploadTracker.delete(key);
+    }
+    if (uploadTracker.has(fileId) && uploadTracker.get(fileId) < now - 60000) {
+        uploadTracker.delete(fileId);
+    }
+    uploadTracker.set(fileId, now);
+
+    const baseDir = isPrivate ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const chunkDir = path.join(baseDir, `temp_${fileId}`);
+    fs.ensureDirSync(chunkDir);
+    fs.writeFileSync(path.join(chunkDir, `chunk_${chunkIndex}`), Buffer.from(chunk, 'base64'));
+
+    if (parseInt(chunkIndex) === parseInt(totalChunks) - 1) {
+        const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const finalName = `${Date.now()}_${safeName}`;
+        const finalPath = path.join(baseDir, finalName);
+        const ws = fs.createWriteStream(finalPath);
+        for (let i = 0; i < totalChunks; i++) {
+            const cp = path.join(chunkDir, `chunk_${i}`);
+            if (fs.existsSync(cp)) ws.write(fs.readFileSync(cp));
+            fs.unlinkSync(cp);
+        }
+        ws.end();
+        fs.removeSync(chunkDir);
+        uploadTracker.delete(fileId);
+        const url = isPrivate ? `/private-download/${finalName}` : `/uploads/${finalName}`;
+        if (!isPrivate) {
+            const userInfo = db.prepare(`SELECT username, avatar_url FROM users WHERE id = ?`).get(userId);
+            const fullMsg = {
+                uniqueId: `${Date.now()}-${fileId}`,
+                userId,
+                nickname: userInfo.username,
+                avatar: userInfo.avatar_url,
+                url,
+                name: safeName,
+                size: fileSize,
+                type: 'file',
+                timestamp: new Date().toISOString()
+            };
+            messages.push(fullMsg);
+            saveMessages();
+            io.emit('chat message', fullMsg);
+        }
+        res.json({ done: true, url });
+    } else {
+        res.json({ done: false });
+    }
+});
+
+app.get('/private-download/:filename', requireAuth, (req, res) => {
+    const filename = path.basename(req.params.filename);
+    const filepath = path.join(PRIVATE_UPLOADS_DIR, filename);
+    if (fs.existsSync(filepath)) res.sendFile(filepath);
+    else res.status(404).json({ error: 'Arquivo não encontrado' });
+});
+
+function createPrivateMessage(fromUserId, data) {
+    const { toUserId, text, type, url, audioUrl, name, size, replyToId, replyToText, replyToSender } = data;
+    if (!toUserId) throw new Error('toUserId obrigatório');
+    const fromUser = db.prepare(`SELECT username, avatar_url FROM users WHERE id = ?`).get(fromUserId);
+    const stmt = db.prepare(`
+        INSERT INTO private_messages 
+        (from_user_id, to_user_id, text, type, url, audio_url, name, size, reply_to_id, reply_to_text, reply_to_sender)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+        fromUserId,
+        parseInt(toUserId),
+        (text || '').substring(0, 2000),
+        type || 'text',
+        url || null,
+        audioUrl || null,
+        name || null,
+        size || null,
+        replyToId || null,
+        replyToText || null,
+        replyToSender || null
+    );
+    const newMsg = {
+        id: info.lastInsertRowid,
+        from_user_id: fromUserId,
+        to_user_id: parseInt(toUserId),
+        text: (text || '').substring(0, 2000),
+        type: type || 'text',
+        url: url || null,
+        audio_url: audioUrl || null,
+        name: name || null,
+        size: size || null,
+        reply_to_id: replyToId || null,
+        reply_to_text: replyToText || null,
+        reply_to_sender: replyToSender || null,
+        timestamp: new Date().toISOString(),
+        fromUsername: fromUser.username,
+        fromAvatar: fromUser.avatar_url,
+        edited: 0,
+        read: false
+    };
+
+    io.to(`user_${toUserId}`).emit('private message', newMsg);
+
+    const recipient = db.prepare('SELECT fcm_token FROM users WHERE id = ?').get(toUserId);
+    if (recipient && recipient.fcm_token) {
+        const pushBody = newMsg.type === 'text' ? newMsg.text : (newMsg.type === 'audio' ? '🎤 Mensagem de voz' : '📎 Arquivo');
+        try {
+            if (admin.apps && admin.apps.length > 0) {
+                admin.messaging().send({
+                    token: recipient.fcm_token,
+                    notification: {
+                        title: fromUser.username,
+                        body: pushBody.substring(0, 100)
+                    },
+                    data: {
+                        fromUserId: String(fromUserId)
+                    },
+                    android: {
+                        priority: 'high',
+                        notification: { sound: 'default', channelId: 'chat_notifications' }
+                    }
+                }).catch(err => console.error('Erro ao enviar push:', err.message));
+            }
+        } catch(e) {}
+    }
+
+    return newMsg;
+}
+
+// Usado pelo app Android nativo (não tem cliente socket.io, manda por REST mesmo)
+app.post('/api/private-message', requireAuth, (req, res) => {
+    try {
+        const newMsg = createPrivateMessage(req.session.userId, req.body);
+        res.json({ success: true, message: newMsg });
+    } catch (e) {
+        console.error('Erro ao criar mensagem privada:', e.message, 'body:', JSON.stringify(req.body));
+        res.status(400).json({ error: e.message });
+    }
+});
+
+let onlineUsers = new Map();
+io.use((socket, next) => sessionMiddleware(socket.request, socket.request.res || {}, next));
+
+io.on('connection', (socket) => {
+    const sessionUserId = socket.request.session?.userId;
+    if (!sessionUserId) {
+        socket.emit('auth error', 'Não autenticado');
+        socket.disconnect();
+        return;
+    }
+    const user = db.prepare(`SELECT id, username, avatar_url FROM users WHERE id = ?`).get(sessionUserId);
+    if (!user) return socket.disconnect();
+    const userId = user.id;
+    const userInfo = { username: user.username, avatar: user.avatar_url };
+
+    socket.join(`user_${userId}`);
+    onlineUsers.set(userId, socket.id);
+    io.emit('user online', { userId, username: userInfo.username });
+
+    if (notice) {
+        socket.emit('notice update', notice);
+    }
+
+    socket.emit('chat history', messages);
+
+    socket.on('chat message', (msg) => {
+        if (!msg.text) return;
+        const full = {
+            uniqueId: `${Date.now()}-${socket.id}`,
+            userId,
+            nickname: userInfo.username,
+            avatar: userInfo.avatar,
+            text: msg.text.substring(0, 2000),
+            type: 'text',
+            timestamp: new Date().toISOString()
+        };
+        messages.push(full);
+        saveMessages();
+        io.emit('chat message', full);
+    });
+
+    socket.on('audio message', (data) => {
+        try {
+            if (!data.audioBase64) return;
+            const audioBuffer = Buffer.from(data.audioBase64, 'base64');
+            if (audioBuffer.length > 10 * 1024 * 1024) return;
+            const audioName = `audio_${Date.now()}_${userId}.webm`;
+            const audioPath = path.join(UPLOAD_DIR, audioName);
+            fs.writeFileSync(audioPath, audioBuffer);
+            const full = {
+                uniqueId: `${Date.now()}-${socket.id}`,
+                userId,
+                nickname: userInfo.username,
+                avatar: userInfo.avatar,
+                audioUrl: `/uploads/${audioName}`,
+                type: 'audio',
+                timestamp: new Date().toISOString()
+            };
+            messages.push(full);
+            saveMessages();
+            io.emit('chat message', full);
+        } catch(e) { console.error('Erro ao salvar áudio:', e); }
+    });
+
+    socket.on('typing', () => socket.broadcast.emit('user typing', { username: userInfo.username }));
+    socket.on('stop typing', () => socket.broadcast.emit('stop typing', { username: userInfo.username }));
+    socket.on('recording start', () => socket.broadcast.emit('user recording', { username: userInfo.username }));
+    socket.on('recording stop', () => socket.broadcast.emit('stop typing', { username: userInfo.username }));
+
+    socket.on('private message', (data) => {
+        try {
+            const newMsg = createPrivateMessage(userId, data);
+            socket.emit('private message', newMsg);
+        } catch (e) { /* toUserId ausente etc. */ }
+    });
+
+    socket.on('private typing', ({ toUserId }) => {
+        if (toUserId) io.to(`user_${toUserId}`).emit('private typing', { fromUserId: userId, username: userInfo.username });
+    });
+    socket.on('private stop typing', ({ toUserId }) => {
+        if (toUserId) io.to(`user_${toUserId}`).emit('private stop typing', { fromUserId: userId });
+    });
+
+    socket.on('mark read', ({ withUserId, lastMessageId }) => {
+        if (withUserId && lastMessageId) {
+            db.prepare(`INSERT OR REPLACE INTO read_receipts (user_id, other_user_id, last_read_id) VALUES (?, ?, ?)`)
+              .run(userId, parseInt(withUserId), parseInt(lastMessageId));
+            io.to(`user_${withUserId}`).emit('messages read', { byUserId: userId });
+        }
+    });
+
+    socket.on('delete private message', ({ toUserId, messageId }) => {
+        if (!toUserId || !messageId) return;
+        const fromUserId = userId;
+        const hasReplies = db.prepare(`SELECT COUNT(*) as count FROM private_messages WHERE reply_to_id = ?`).get(messageId).count > 0;
+        if (hasReplies) {
+            db.prepare(`UPDATE private_messages SET text = '[Mensagem eliminada]', type = 'deleted', url = NULL, audio_url = NULL WHERE id = ? AND from_user_id = ?`)
+              .run(messageId, fromUserId);
+            io.to(`user_${toUserId}`).emit('private message edited', { messageId, text: '[Mensagem eliminada]', type: 'deleted' });
+            socket.emit('private message edited', { messageId, text: '[Mensagem eliminada]', type: 'deleted' });
+        } else {
+            db.prepare(`DELETE FROM private_messages WHERE id = ? AND from_user_id = ?`).run(messageId, fromUserId);
+            io.to(`user_${toUserId}`).emit('private message deleted', { messageId });
+            socket.emit('private message deleted', { messageId });
+        }
+    });
+
+    socket.on('edit private message', ({ toUserId, messageId, text }) => {
+        if (!toUserId || !messageId || !text) return;
+        const fromUserId = userId;
+        const msg = db.prepare(`SELECT type FROM private_messages WHERE id = ? AND from_user_id = ?`).get(messageId, fromUserId);
+        if (msg && (msg.type === 'text' || msg.type === 'deleted')) {
+            db.prepare(`UPDATE private_messages SET text = ?, edited = 1 WHERE id = ?`).run(text.substring(0, 2000), messageId);
+            io.to(`user_${toUserId}`).emit('private message edited', { messageId, text: text.substring(0, 2000) });
+            socket.emit('private message edited', { messageId, text: text.substring(0, 2000) });
+        }
+    });
+
+    socket.on('call user', ({ toUserId, fromUserId, offer, isVideo }) => {
+        io.to(`user_${toUserId}`).emit('incoming call', { fromUserId, offer, fromUsername: userInfo.username, isVideo });
+    });
+
+    socket.on('accept call', ({ toUserId, fromUserId, answer }) => {
+        io.to(`user_${toUserId}`).emit('call accepted', { fromUserId, answer });
+    });
+
+    socket.on('reject call', ({ toUserId, fromUserId }) => {
+        io.to(`user_${toUserId}`).emit('call rejected', { fromUserId });
+    });
+
+    socket.on('ice candidate', ({ toUserId, candidate }) => {
+        io.to(`user_${toUserId}`).emit('ice candidate', { candidate });
+    });
+
+    socket.on('end call', ({ toUserId, fromUserId }) => {
+        io.to(`user_${toUserId}`).emit('call ended', { fromUserId });
+    });
+
+    socket.on('disconnect', () => {
+        if (onlineUsers.get(userId) === socket.id) {
+            onlineUsers.delete(userId);
+            io.emit('user offline', { userId });
+        }
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => console.log(`🚗 Papalegua rodando na porta ${PORT}`));
+
+// ===== FUNÇÃO PARA ENVIAR NOTIFICAÇÃO PUSH =====
+function sendPushNotification(userId, title, body, data = {}) {
+    try {
+        const user = db.prepare('SELECT fcm_token FROM users WHERE id = ?').get(userId);
+        if (!user || !user.fcm_token) return;
+        
+        // Verificar se Firebase está inicializado
+        if (admin.apps.length === 0) {
+            console.log('Firebase não inicializado, pulando push');
+            return;
+        }
+        
+        const message = {
+            token: user.fcm_token,
+            notification: {
+                title: title,
+                body: body.substring(0, 100)
+            },
+            data: data,
+            android: {
+                priority: 'high',
+                notification: {
+                    sound: 'default',
+                    channelId: 'chat_notifications',
+                    clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+                }
+            }
+        };
+        
+        admin.messaging().send(message)
+            .then(response => console.log('Push enviado:', response))
+            .catch(err => console.error('Erro push:', err.message));
+    } catch(e) {
+        console.error('Erro ao enviar push:', e);
+    }
+}
+
+// Sobrescrever o envio de push nas mensagens privadas
+// Modificar a função existente no socket.on('private message')
+
+    
+    try {
+        const files = fs.readdirSync(UPLOAD_DIR).map(file => {
+            const stat = fs.statSync(path.join(UPLOAD_DIR, file));
+            return {
+                name: file,
+                size: stat.size,
+                uploadedAt: stat.mtime,
+                path: 'raiz'
+            };
+        }).filter(f => f.name !== 'avatars' && f.name !== 'default.png' && f.name !== 'default.svg');
+        
+        res.json({ files });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/delete', requireAuth, (req, res) => {
+    // Verificar se é admin
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { filename } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename obrigatório' });
+    
+    const filepath = path.join(UPLOAD_DIR, filename);
+    if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    try {
+        fs.unlinkSync(filepath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/rename', requireAuth, (req, res) => {
+    // Verificar se é admin
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { oldName, newName } = req.body;
+    if (!oldName || !newName) {
+        return res.status(400).json({ error: 'oldName e newName obrigatórios' });
+    }
+    
+    const oldPath = path.join(UPLOAD_DIR, oldName);
+    const newPath = path.join(UPLOAD_DIR, newName);
+    
+    if (!fs.existsSync(oldPath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    if (fs.existsSync(newPath)) {
+        return res.status(400).json({ error: 'Já existe um arquivo com este nome' });
+    }
+    
+    try {
+        fs.renameSync(oldPath, newPath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+    }
+    
+    try {
+        let allFiles = [];
+        
+        // 1. Arquivos da pasta UPLOAD_DIR (pública)
+        if (fs.existsSync(UPLOAD_DIR)) {
+            const publicFiles = fs.readdirSync(UPLOAD_DIR).map(file => {
+                const stat = fs.statSync(path.join(UPLOAD_DIR, file));
+                return {
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'uploads (público)',
+                    type: 'public'
+                };
+            }).filter(f => f.name !== 'avatars' && f.name !== 'default.png' && f.name !== 'default.svg' && f.name !== 'apk');
+            allFiles = allFiles.concat(publicFiles);
+        }
+        
+        // 2. Arquivos da pasta PRIVATE_UPLOADS_DIR (privada)
+        if (fs.existsSync(PRIVATE_UPLOADS_DIR)) {
+            const privateFiles = fs.readdirSync(PRIVATE_UPLOADS_DIR).map(file => {
+                const stat = fs.statSync(path.join(PRIVATE_UPLOADS_DIR, file));
+                return {
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'private_uploads (privado)',
+                    type: 'private'
+                };
+            });
+            allFiles = allFiles.concat(privateFiles);
+        }
+        
+        res.json({ files: allFiles });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/delete', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { filename, type } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename obrigatório' });
+    
+    // Determinar qual pasta usar
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const filepath = path.join(baseDir, filename);
+    
+    if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    // Não permitir excluir pastas importantes
+    if (filename === 'avatars' || filename === 'default.png' || filename === 'default.svg' || filename === 'apk') {
+        return res.status(403).json({ error: 'Não é possível excluir este arquivo' });
+    }
+    
+    try {
+        fs.unlinkSync(filepath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/rename', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { oldName, newName, type } = req.body;
+    if (!oldName || !newName) {
+        return res.status(400).json({ error: 'oldName e newName obrigatórios' });
+    }
+    
+    // Determinar qual pasta usar
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const oldPath = path.join(baseDir, oldName);
+    const newPath = path.join(baseDir, newName);
+    
+    if (!fs.existsSync(oldPath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    if (fs.existsSync(newPath)) {
+        return res.status(400).json({ error: 'Já existe um arquivo com este nome' });
+    }
+    
+    // Não permitir renomear pastas importantes
+    if (oldName === 'avatars' || oldName === 'default.png' || oldName === 'default.svg' || oldName === 'apk') {
+        return res.status(403).json({ error: 'Não é possível renomear este arquivo' });
+    }
+    
+    try {
+        fs.renameSync(oldPath, newPath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+    }
+    
+    try {
+        let allFiles = [];
+        
+        // 1. Arquivos da pasta UPLOAD_DIR (pública) - /opt/papalegua-backend/uploads/
+        if (fs.existsSync(UPLOAD_DIR)) {
+            console.log('📁 Lendo pasta uploads:', UPLOAD_DIR);
+            const items = fs.readdirSync(UPLOAD_DIR);
+            items.forEach(file => {
+                const filePath = path.join(UPLOAD_DIR, file);
+                const stat = fs.statSync(filePath);
+                // Ignorar pastas e arquivos do sistema
+                if (stat.isDirectory()) {
+                    if (file === 'avatars' || file === 'apk') return;
+                }
+                if (file === 'default.png' || file === 'default.svg') return;
+                if (file === 'avatars' || file === 'apk') return;
+                
+                allFiles.push({
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'uploads/ (público)',
+                    type: 'public',
+                    isDirectory: stat.isDirectory()
+                });
+            });
+        }
+        
+        // 2. Arquivos da pasta PRIVATE_UPLOADS_DIR (privada) - /opt/papalegua-backend/private_uploads/
+        if (fs.existsSync(PRIVATE_UPLOADS_DIR)) {
+            console.log('📁 Lendo pasta private_uploads:', PRIVATE_UPLOADS_DIR);
+            const items = fs.readdirSync(PRIVATE_UPLOADS_DIR);
+            items.forEach(file => {
+                const filePath = path.join(PRIVATE_UPLOADS_DIR, file);
+                const stat = fs.statSync(filePath);
+                // Ignorar pastas
+                if (stat.isDirectory()) return;
+                
+                allFiles.push({
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'private_uploads/ (privado)',
+                    type: 'private',
+                    isDirectory: false
+                });
+            });
+        }
+        
+        console.log('✅ Total de arquivos encontrados:', allFiles.length);
+        res.json({ files: allFiles });
+    } catch(e) {
+        console.error('❌ Erro ao listar arquivos:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/delete', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { filename, type } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename obrigatório' });
+    
+    // Determinar qual pasta usar
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const filepath = path.join(baseDir, filename);
+    
+    if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    try {
+        fs.unlinkSync(filepath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/rename', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { oldName, newName, type } = req.body;
+    if (!oldName || !newName) {
+        return res.status(400).json({ error: 'oldName e newName obrigatórios' });
+    }
+    
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const oldPath = path.join(baseDir, oldName);
+    const newPath = path.join(baseDir, newName);
+    
+    if (!fs.existsSync(oldPath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    if (fs.existsSync(newPath)) {
+        return res.status(400).json({ error: 'Já existe um arquivo com este nome' });
+    }
+    
+    try {
+        fs.renameSync(oldPath, newPath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== ROTAS PARA GERENCIAMENTO DE ARQUIVOS (APENAS ADMIN) =====
+app.get('/api/files', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    try {
+        let allFiles = [];
+        
+        if (fs.existsSync(UPLOAD_DIR)) {
+            const items = fs.readdirSync(UPLOAD_DIR);
+            items.forEach(file => {
+                const filePath = path.join(UPLOAD_DIR, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) {
+                    if (file === 'avatars' || file === 'apk') return;
+                }
+                if (file === 'default.png' || file === 'default.svg') return;
+                
+                allFiles.push({
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'uploads/ (público)',
+                    type: 'public'
+                });
+            });
+        }
+        
+        if (fs.existsSync(PRIVATE_UPLOADS_DIR)) {
+            const items = fs.readdirSync(PRIVATE_UPLOADS_DIR);
+            items.forEach(file => {
+                const filePath = path.join(PRIVATE_UPLOADS_DIR, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isDirectory()) return;
+                
+                allFiles.push({
+                    name: file,
+                    size: stat.size,
+                    uploadedAt: stat.mtime,
+                    path: 'private_uploads/ (privado)',
+                    type: 'private'
+                });
+            });
+        }
+        
+        res.json({ files: allFiles });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/delete', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { filename, type } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename obrigatório' });
+    
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const filepath = path.join(baseDir, filename);
+    
+    if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    try {
+        fs.unlinkSync(filepath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/file/rename', requireAuth, (req, res) => {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    if (!adminUser || adminUser.id !== req.session.userId) {
+        return res.status(403).json({ error: 'Acesso negado' });
+    }
+    
+    const { oldName, newName, type } = req.body;
+    if (!oldName || !newName) {
+        return res.status(400).json({ error: 'oldName e newName obrigatórios' });
+    }
+    
+    const baseDir = type === 'private' ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const oldPath = path.join(baseDir, oldName);
+    const newPath = path.join(baseDir, newName);
+    
+    if (!fs.existsSync(oldPath)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+    
+    if (fs.existsSync(newPath)) {
+        return res.status(400).json({ error: 'Já existe um arquivo com este nome' });
+    }
+    
+    try {
+        fs.renameSync(oldPath, newPath);
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});

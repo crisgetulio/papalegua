@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro - Papalegua</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Roboto,system-ui}
+        body{background:#0d1117;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px}
+        .container{background:#111827;padding:32px 24px;border-radius:20px;width:100%;max-width:380px;border:1px solid #1e293b;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+        .logo{text-align:center;font-size:28px;font-weight:700;color:#d4af37;margin-bottom:24px}
+        .logo span{font-size:14px;color:#64748b;display:block;font-weight:400}
+        .input-group{margin-bottom:14px}
+        .input-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:4px}
+        .input-group input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #1e293b;background:#1a2332;color:#f1f5f9;font-size:14px;outline:none;transition:border-color .2s}
+        .input-group input:focus{border-color:#d4af37}
+        .input-group input::placeholder{color:#475569}
+        .btn{width:100%;padding:12px;border-radius:12px;border:none;background:#d4af37;color:#111827;font-size:16px;font-weight:700;cursor:pointer;transition:background .2s}
+        .btn:hover{background:#e5c44d}
+        .btn:disabled{opacity:.6;cursor:not-allowed}
+        .error{color:#ef4444;font-size:13px;text-align:center;margin-top:8px;min-height:20px}
+        .success{color:#22c55e;font-size:13px;text-align:center;margin-top:8px}
+        .footer{text-align:center;margin-top:16px;font-size:13px;color:#64748b}
+        .footer a{color:#d4af37;text-decoration:none}
+        .footer a:hover{text-decoration:underline}
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="logo">🚗 Papalegua<span>Crie sua conta</span></div>
+    <form id="registerForm">
+        <div class="input-group">
+            <label>Usuário *</label>
+            <input type="text" id="username" placeholder="Mínimo 3 caracteres" required>
+        </div>
+        <div class="input-group">
+            <label>E-mail *</label>
+            <input type="email" id="email" placeholder="seu@email.com" required>
+        </div>
+        <div class="input-group">
+            <label>Telefone (opcional)</label>
+            <input type="text" id="phone" placeholder="(00) 00000-0000">
+        </div>
+        <div class="input-group">
+            <label>Endereço (opcional)</label>
+            <input type="text" id="address" placeholder="Cidade, estado">
+        </div>
+        <div class="input-group">
+            <label>Senha *</label>
+            <input type="password" id="password" placeholder="Mínimo 6 caracteres" required>
+        </div>
+        <button type="submit" class="btn" id="registerBtn">Registrar</button>
+        <div id="message"></div>
+    </form>
+    <div class="footer">Já tem conta? <a href="/login.html">Faça login</a></div>
+</div>
+<script>
+document.getElementById('registerForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('registerBtn');
+    const msg = document.getElementById('message');
+    btn.disabled = true;
+    btn.textContent = 'Criando...';
+    msg.className = '';
+    msg.textContent = '';
+
+    const username = document.getElementById('username').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const phone = document.getElementById('phone').value.trim();
+    const address = document.getElementById('address').value.trim();
+    const password = document.getElementById('password').value;
+
+    if (!username || !email || !password) {
+        msg.className = 'error';
+        msg.textContent = 'Preencha os campos obrigatórios.';
+        btn.disabled = false;
+        btn.textContent = 'Registrar';
+        return;
+    }
+    if (username.length < 3) {
+        msg.className = 'error';
+        msg.textContent = 'Usuário deve ter ao menos 3 caracteres.';
+        btn.disabled = false;
+        btn.textContent = 'Registrar';
+        return;
+    }
+    if (password.length < 6) {
+        msg.className = 'error';
+        msg.textContent = 'Senha deve ter ao menos 6 caracteres.';
+        btn.disabled = false;
+        btn.textContent = 'Registrar';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, phone, address, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+            msg.className = 'success';
+            msg.textContent = 'Conta criada! Faça login agora.';
+            btn.textContent = 'Registrar';
+            btn.disabled = false;
+            setTimeout(() => window.location.href = '/login.html', 2000);
+        } else {
+            msg.className = 'error';
+            msg.textContent = data.error || 'Erro ao registrar.';
+            btn.disabled = false;
+            btn.textContent = 'Registrar';
+        }
+    } catch(err) {
+        msg.className = 'error';
+        msg.textContent = 'Erro de conexão. Tente novamente.';
+        btn.disabled = false;
+        btn.textContent = 'Registrar';
+    }
+};
+</script>
+</body>
+</html>

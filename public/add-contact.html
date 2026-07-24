@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adicionar Contato - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+        .container { background: var(--bg-container); padding: 32px 24px; border-radius: 20px; border: 1px solid var(--border-color); max-width: 400px; width: 100%; }
+        .logo { font-size: 24px; color: var(--accent-gold); font-weight: 700; text-align: center; margin-bottom: 8px; }
+        .subtitle { color: var(--text-secondary); text-align: center; font-size: 14px; margin-bottom: 24px; }
+        
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tabs button { flex: 1; padding: 8px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-input); cursor: pointer; font-size: 13px; color: var(--text-secondary); transition: all .2s; }
+        .tabs button.active { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        .tabs button:hover:not(.active) { background: var(--bg-header); }
+        
+        .form { display: none; }
+        .form.active { display: block; }
+        
+        .input-group { margin-bottom: 14px; }
+        .input-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+        .input-group input, .input-group textarea { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-input); font-size: 14px; outline: none; }
+        .input-group input:focus, .input-group textarea:focus { border-color: var(--accent-gold); }
+        .input-group textarea { min-height: 60px; resize: vertical; font-family: monospace; }
+        
+        .btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--accent-gold); color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all .2s; }
+        .btn:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); margin-top: 8px; }
+        .btn-secondary:hover { background: var(--bg-header); transform: none; }
+        
+        .message { text-align: center; font-size: 13px; margin-top: 12px; min-height: 20px; }
+        .message.success { color: #22c55e; }
+        .message.error { color: #ef4444; }
+        
+        .file-upload-area { border: 2px dashed var(--border-color); border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin: 8px 0; }
+        .file-upload-area:hover { border-color: var(--accent-gold); background: var(--bg-header); }
+        .file-upload-area .icon { font-size: 32px; display: block; margin-bottom: 4px; }
+        .file-upload-area .text { font-size: 13px; color: var(--text-secondary); }
+        .file-input { display: none; }
+        
+        .back-link { display: block; text-align: center; margin-top: 16px; color: var(--accent-gold); text-decoration: none; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: var(--bg-container); padding: 24px; border-radius: 16px; max-width: 400px; width: 90%; }
+        .modal-content h3 { margin-bottom: 12px; color: var(--text-primary); }
+        .modal-content input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin: 8px 0; }
+        .modal-content .btn { margin-top: 8px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="logo">➕ Papalegua</div>
+    <div class="subtitle">Adicione um amigo</div>
+    
+    <div class="tabs">
+        <button class="active" id="tabManual" onclick="switchTab('manual')">✏️ Manual</button>
+        <button id="tabFile" onclick="switchTab('file')">📂 Arquivo</button>
+    </div>
+
+    <!-- ABA MANUAL -->
+    <div id="formManual" class="form active">
+        <form id="addForm">
+            <div class="input-group">
+                <label>ID do amigo</label>
+                <input type="text" id="contactId" placeholder="Ex: 4bf38dc2278098a0..." required>
+            </div>
+            <button type="submit" class="btn" id="addBtn">🔍 Adicionar contato</button>
+            <div class="message" id="msg"></div>
+        </form>
+    </div>
+
+    <!-- ABA ARQUIVO -->
+    <div id="formFile" class="form">
+        <div class="file-upload-area" onclick="document.getElementById('fileInput').click()">
+            <span class="icon">📂</span>
+            <span class="text">Clique para selecionar arquivo .json<br><small style="color: var(--text-muted);">Arquivo exportado do perfil</small></span>
+        </div>
+        <input type="file" id="fileInput" class="file-input" accept=".json" onchange="handleFileImport(event)">
+        <div class="message" id="fileMsg"></div>
+        <div style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:8px;">
+            O arquivo deve conter: userId, publicKey, privateKey
+        </div>
+    </div>
+
+    <a href="/contacts.html" class="back-link">← Voltar para contatos</a>
+</div>
+
+<!-- MODAL SENHA -->
+<div class="modal" id="passwordModal">
+    <div class="modal-content">
+        <h3>🔐 Arquivo criptografado</h3>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Digite a senha do arquivo:</p>
+        <input type="password" id="filePassword" placeholder="Senha do arquivo">
+        <button class="btn" onclick="confirmPassword()">📂 Importar</button>
+        <button class="btn btn-secondary" onclick="closePasswordModal()">Cancelar</button>
+    </div>
+</div>
+
+<script>
+let pendingFileData = null;
+
+// ===== SWITCH TABS =====
+function switchTab(tab) {
+    document.querySelectorAll('.form').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
+    if (tab === 'manual') {
+        document.getElementById('formManual').classList.add('active');
+        document.getElementById('tabManual').classList.add('active');
+    } else {
+        document.getElementById('formFile').classList.add('active');
+        document.getElementById('tabFile').classList.add('active');
+    }
+}
+
+// ===== ADICIONAR CONTATO MANUAL =====
+document.getElementById('addForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('addBtn');
+    const msg = document.getElementById('msg');
+    const input = document.getElementById('contactId');
+    const contactId = input.value.trim();
+    
+    if (!contactId) {
+        msg.className = 'message error';
+        msg.textContent = 'Digite um ID válido';
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    msg.className = '';
+    msg.textContent = '';
+    
+    try {
+        const res = await fetch(`/api/public-key/${contactId}`);
+        if (!res.ok) {
+            msg.className = 'message error';
+            msg.textContent = '❌ Usuário não encontrado. Verifique o ID.';
+            btn.disabled = false;
+            btn.textContent = '🔍 Adicionar contato';
+            return;
+        }
+        
+        const contacts = JSON.parse(localStorage.getItem('contacts') || '[]');
+        if (!contacts.includes(contactId)) {
+            contacts.push(contactId);
+            localStorage.setItem('contacts', JSON.stringify(contacts));
+        }
+        
+        msg.className = 'message success';
+        msg.textContent = '✅ Contato adicionado com sucesso!';
+        input.value = '';
+        
+        setTimeout(() => { window.location.href = '/contacts.html'; }, 1500);
+        
+    } catch(e) {
+        msg.className = 'message error';
+        msg.textContent = '❌ Erro de conexão. Tente novamente.';
+    }
+    
+    btn.disabled = false;
+    btn.textContent = '🔍 Adicionar contato';
+};
+
+// ===== FUNÇÕES DE CRIPTOGRAFIA (para importar arquivo) =====
+async function deriveKey(secret, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        'PBKDF2',
+        false,
+        ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: encoder.encode(salt), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function decryptData(encryptedStr, secret) {
+    const parsed = JSON.parse(encryptedStr);
+    const salt = Uint8Array.from(atob(parsed.salt), c => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(parsed.iv), c => c.charCodeAt(0));
+    const data = Uint8Array.from(atob(parsed.data), c => c.charCodeAt(0));
+    const key = await deriveKey(secret, salt);
+    const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        data
+    );
+    return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+// ===== IMPORTAR ARQUIVO =====
+function handleFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const msg = document.getElementById('fileMsg');
+    msg.className = '';
+    msg.textContent = '📖 Lendo arquivo...';
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            
+            // Verifica se está criptografado
+            if (data.encrypted) {
+                pendingFileData = data;
+                document.getElementById('passwordModal').style.display = 'flex';
+                document.getElementById('filePassword').value = '';
+                document.getElementById('filePassword').focus();
+                msg.textContent = '🔐 Arquivo criptografado. Digite a senha.';
+                return;
+            }
+            
+            // Arquivo sem criptografia
+            if (!data.userId || !data.publicKey || !data.privateKey) {
+                msg.className = 'message error';
+                msg.textContent = '❌ Arquivo inválido. Faltam campos obrigatórios.';
+                return;
+            }
+            
+            // Adiciona como contato
+            await addContactFromKeys(data.userId, data.publicKey, data.privateKey);
+            
+        } catch(err) {
+            msg.className = 'message error';
+            msg.textContent = '❌ Erro ao ler arquivo: ' + err.message;
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+// ===== CONFIRMAR SENHA =====
+async function confirmPassword() {
+    const password = document.getElementById('filePassword').value.trim();
+    const msg = document.getElementById('fileMsg');
+    
+    if (!password) {
+        msg.className = 'message error';
+        msg.textContent = '❌ Digite a senha do arquivo.';
+        return;
+    }
+    
+    try {
+        const data = await decryptData(pendingFileData.data, password);
+        
+        if (!data.userId || !data.publicKey || !data.privateKey) {
+            msg.className = 'message error';
+            msg.textContent = '❌ Arquivo inválido.';
+            closePasswordModal();
+            return;
+        }
+        
+        await addContactFromKeys(data.userId, data.publicKey, data.privateKey);
+        closePasswordModal();
+        
+    } catch(err) {
+        msg.className = 'message error';
+        msg.textContent = '❌ Senha incorreta. Tente novamente.';
+        document.getElementById('filePassword').value = '';
+        document.getElementById('filePassword').focus();
+    }
+}
+
+// ===== ADICIONAR CONTATO A PARTIR DAS CHAVES =====
+async function addContactFromKeys(userId, publicKey, privateKey) {
+    const msg = document.getElementById('fileMsg');
+    
+    try {
+        // Verifica se o usuário existe no servidor
+        const res = await fetch(`/api/public-key/${userId}`);
+        if (!res.ok) {
+            msg.className = 'message error';
+            msg.textContent = '❌ Usuário não encontrado no servidor.';
+            return;
+        }
+        
+        // Adiciona aos contatos
+        const contacts = JSON.parse(localStorage.getItem('contacts') || '[]');
+        if (!contacts.includes(userId)) {
+            contacts.push(userId);
+            localStorage.setItem('contacts', JSON.stringify(contacts));
+        }
+        
+        // Salva as chaves (opcional - para poder importar depois)
+        localStorage.setItem('imported_contact_' + userId, JSON.stringify({ publicKey, privateKey }));
+        
+        msg.className = 'message success';
+        msg.textContent = '✅ Contato adicionado com sucesso! ID: ' + userId.substring(0, 12) + '...';
+        
+        setTimeout(() => { window.location.href = '/contacts.html'; }, 2000);
+        
+    } catch(e) {
+        msg.className = 'message error';
+        msg.textContent = '❌ Erro ao adicionar contato: ' + e.message;
+    }
+}
+
+// ===== FECHAR MODAL =====
+function closePasswordModal() {
+    document.getElementById('passwordModal').style.display = 'none';
+    pendingFileData = null;
+    document.getElementById('filePassword').value = '';
+}
+
+// Fecha modal ao clicar fora
+document.getElementById('passwordModal').onclick = (e) => {
+    if (e.target === document.getElementById('passwordModal')) closePasswordModal();
+};
+
+// Enter na senha
+document.getElementById('filePassword').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmPassword();
+});
+</script>
+</body>
+</html>

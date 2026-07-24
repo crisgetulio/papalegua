@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadastro - Papalegua</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{min-height:100%;background:#0d1117;font-family:'Segoe UI',Roboto,system-ui;display:flex;align-items:center;justify-content:center;padding:20px 0}
+        .card{width:100%;max-width:380px;padding:24px 20px;background:#111827;border-radius:16px;border:1px solid #1e293b;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+        .logo{text-align:center;margin-bottom:20px}
+        .logo-icon{width:48px;height:48px;background:linear-gradient(135deg,#d4af37,#f3e5ab);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 8px}
+        .logo h1{font-size:20px;font-weight:700;color:#f1f5f9}
+        .logo p{font-size:12px;color:#64748b;margin-top:2px}
+        .form-group{margin-bottom:12px}
+        .form-group label{display:block;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+        .form-group input{width:100%;padding:9px 12px;border-radius:8px;border:1px solid #1e293b;background:#0d1117;color:#f1f5f9;font-size:14px;outline:none;transition:border-color .2s}
+        .form-group input:focus{border-color:#d4af37}
+        .optional{font-weight:400;color:#374151;font-size:9px;margin-left:4px}
+        .btn{width:100%;padding:11px;border-radius:10px;border:none;font-weight:700;font-size:14px;cursor:pointer;transition:all .2s;margin-top:4px}
+        .btn-primary{background:linear-gradient(135deg,#d4af37,#b8962e);color:#111827}
+        .btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(212,175,55,0.3)}
+        .link-btn{text-align:center;font-size:13px;color:#64748b;margin-top:12px}
+        .link-btn a{color:#d4af37;text-decoration:none;font-weight:600}
+        .error-msg{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}
+        .success-msg{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);color:#22c55e;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="logo"><div class="logo-icon">💬</div><h1>Criar Conta</h1><p>Registre-se no Papalegua</p></div>
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="success-msg" id="successMsg"></div>
+    <div class="form-group"><label>Usuário</label><input type="text" id="username" placeholder="Mínimo 3 caracteres" autocomplete="username"></div>
+    <div class="form-group"><label>E-mail</label><input type="email" id="email" placeholder="seu@email.com" autocomplete="email"></div>
+    <div class="form-group"><label>Senha</label><input type="password" id="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+    <div class="form-group"><label>Telefone <span class="optional">(opcional)</span></label><input type="text" id="phone" placeholder="(48) 99999-9999"></div>
+    <button class="btn btn-primary" id="regBtn">Criar Conta</button>
+    <div class="link-btn"><a href="/login.html">← Já tenho conta</a></div>
+</div>
+<script>
+function showError(msg) { const e = document.getElementById('errorMsg'); e.textContent = msg; e.style.display = 'block'; document.getElementById('successMsg').style.display = 'none'; }
+function showSuccess(msg) { const e = document.getElementById('successMsg'); e.textContent = msg; e.style.display = 'block'; document.getElementById('errorMsg').style.display = 'none'; }
+async function doRegister() {
+    const username = document.getElementById('username').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const phone = document.getElementById('phone').value.trim();
+    if (!username || !email || !password) { showError('Preencha usuário, e-mail e senha'); return; }
+    if (username.length < 3) { showError('Usuário deve ter no mínimo 3 caracteres'); return; }
+    if (password.length < 6) { showError('Senha deve ter no mínimo 6 caracteres'); return; }
+    document.getElementById('regBtn').textContent = 'Criando...';
+    document.getElementById('regBtn').disabled = true;
+    try {
+        const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password, phone })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showSuccess('Conta criada! Redirecionando...');
+            setTimeout(() => window.location.href = '/login.html', 1500);
+        } else { showError(data.error || 'Erro ao criar conta'); }
+    } catch(e) { showError('Erro de conexão.'); }
+    document.getElementById('regBtn').textContent = 'Criar Conta';
+    document.getElementById('regBtn').disabled = false;
+}
+document.getElementById('regBtn').onclick = doRegister;
+document.querySelectorAll('input').forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); }));
+</script>
+</body>
+</html>

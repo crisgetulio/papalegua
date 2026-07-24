@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+        .container { background: var(--bg-container); padding: 32px 24px; border-radius: 20px; border: 1px solid var(--border-color); max-width: 450px; width: 100%; text-align: center; }
+        .logo { font-size: 24px; color: var(--accent-gold); font-weight: 700; margin-bottom: 4px; }
+        .subtitle { color: var(--text-secondary); font-size: 14px; margin-bottom: 20px; }
+        
+        .qr-box { background: white; padding: 20px; border-radius: 16px; margin: 16px 0; border: 2px solid var(--border-color); display: flex; justify-content: center; align-items: center; min-height: 250px; }
+        #qrCode { max-width: 220px; height: auto; image-rendering: pixelated; }
+        
+        .id-box { background: var(--bg-input); padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border-color); margin: 12px 0; word-break: break-all; }
+        .id-box .label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+        .id-box .value { font-size: 13px; font-family: monospace; color: var(--text-primary); font-weight: 600; }
+        
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+        .btn { padding: 10px 20px; border-radius: 12px; border: none; font-weight: 700; cursor: pointer; transition: all .2s; flex: 1; min-width: 100px; font-size: 14px; }
+        .btn-gold { background: var(--accent-gold); color: #fff; }
+        .btn-gold:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn-secondary { background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-header); }
+        .btn-success { background: #22c55e; color: #fff; }
+        .btn-success:hover { background: #16a34a; transform: translateY(-2px); }
+        
+        .back-link { display: block; margin-top: 16px; color: var(--accent-gold); text-decoration: none; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        
+        .loading { color: var(--text-muted); padding: 20px; }
+        .username-display { color: var(--accent-gold); font-weight: 600; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="logo">📱 Papalegua</div>
+    <div class="subtitle">Compartilhe seu ID com amigos</div>
+    
+    <div class="qr-box" id="qrContainer">
+        <div class="loading">⏳ Gerando QR Code...</div>
+        <img id="qrCode" style="display:none;" alt="QR Code">
+    </div>
+    
+    <div class="id-box">
+        <span class="label">SEU ID ÚNICO</span>
+        <span class="value" id="userIdDisplay">carregando...</span>
+    </div>
+    
+    <div style="font-size:13px;color:var(--text-secondary);margin:4px 0;">
+        👤 <span class="username-display" id="usernameDisplay">carregando...</span>
+    </div>
+    
+    <div class="btn-group">
+        <button class="btn btn-gold" onclick="copyId()">📋 Copiar ID</button>
+        <button class="btn btn-success" onclick="downloadQR()">💾 Baixar QR</button>
+        <button class="btn btn-secondary" onclick="shareQR()">📤 Compartilhar</button>
+    </div>
+    
+    <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-secondary" onclick="window.location.href='/contacts.html'" style="flex:1;">← Voltar</button>
+        <button class="btn btn-gold" onclick="window.location.href='/qr-scanner.html'" style="flex:1;">📷 Escanear QR</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+let currentUserId = '';
+let currentUsername = '';
+let qrCodeInstance = null;
+
+// ===============================================
+// CARREGA O ID DO USUÁRIO
+// ===============================================
+async function loadUserData() {
+    try {
+        const res = await fetch('/api/me');
+        if (!res.ok) throw new Error('Não autenticado');
+        const user = await res.json();
+        currentUserId = user.id;
+        currentUsername = user.username || 'Anônimo';
+        document.getElementById('userIdDisplay').textContent = currentUserId;
+        document.getElementById('usernameDisplay').textContent = currentUsername;
+        generateQRCode(currentUserId);
+    } catch(e) {
+        console.error('Erro ao carregar dados:', e);
+        const localId = localStorage.getItem('userId');
+        if (localId) {
+            currentUserId = localId;
+            document.getElementById('userIdDisplay').textContent = currentUserId;
+            generateQRCode(currentUserId);
+        } else {
+            document.getElementById('userIdDisplay').textContent = 'Erro: faça login novamente';
+            document.getElementById('qrContainer').innerHTML = '<div class="loading">❌ Erro ao carregar ID</div>';
+        }
+    }
+}
+
+// ===============================================
+// GERAR QR CODE
+// ===============================================
+function generateQRCode(text) {
+    const container = document.getElementById('qrContainer');
+    const img = document.getElementById('qrCode');
+    const loading = container.querySelector('.loading');
+    
+    if (loading) loading.style.display = 'none';
+    
+    if (qrCodeInstance) {
+        qrCodeInstance.clear();
+        qrCodeInstance = null;
+    }
+    
+    try {
+        const qrDiv = document.createElement('div');
+        qrDiv.id = 'qrCodeDiv';
+        container.appendChild(qrDiv);
+        
+        qrCodeInstance = new QRCode(qrDiv, {
+            text: text,
+            width: 220,
+            height: 220,
+            colorDark: '#3d2b1f',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+        
+        img.style.display = 'none';
+        qrDiv.style.display = 'block';
+        
+        console.log('✅ QR Code gerado para:', text);
+    } catch(e) {
+        console.error('Erro ao gerar QR Code:', e);
+        container.innerHTML = `
+            <div style="padding:20px;color:#ef4444;">
+                ❌ Erro ao gerar QR Code<br>
+                <span style="font-size:12px;color:var(--text-muted);">${e.message}</span>
+            </div>
+        `;
+    }
+}
+
+// ===============================================
+// COPIAR ID
+// ===============================================
+function copyId() {
+    const id = document.getElementById('userIdDisplay').textContent;
+    if (!id || id === 'carregando...' || id.includes('Erro')) {
+        alert('ID não disponível.');
+        return;
+    }
+    navigator.clipboard.writeText(id).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✅ Copiado!';
+        setTimeout(() => { btn.textContent = originalText; }, 2000);
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = id;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('✅ ID copiado: ' + id);
+    });
+}
+
+// ===============================================
+// BAIXAR QR CODE
+// ===============================================
+function downloadQR() {
+    const qrDiv = document.getElementById('qrCodeDiv');
+    if (!qrDiv) {
+        alert('QR Code não gerado ainda.');
+        return;
+    }
+    const canvas = qrDiv.querySelector('canvas');
+    if (!canvas) {
+        alert('QR Code não encontrado.');
+        return;
+    }
+    const link = document.createElement('a');
+    link.download = `papalegua-qr-${currentUserId.substring(0, 8)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+}
+
+// ===============================================
+// COMPARTILHAR QR CODE
+// ===============================================
+function shareQR() {
+    const qrDiv = document.getElementById('qrCodeDiv');
+    if (!qrDiv) {
+        alert('QR Code não gerado ainda.');
+        return;
+    }
+    const canvas = qrDiv.querySelector('canvas');
+    if (!canvas) return;
+    
+    canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], 'qr-code.png', { type: 'image/png' });
+        try {
+            if (navigator.share) {
+                await navigator.share({
+                    title: 'Meu QR Code - Papalegua',
+                    text: `Meu ID: ${currentUserId}`,
+                    files: [file]
+                });
+            } else {
+                alert(`📋 Seu ID: ${currentUserId}\nCompartilhe este ID com seus amigos.`);
+            }
+        } catch(e) {
+            if (e.name !== 'AbortError') {
+                alert(`📋 Seu ID: ${currentUserId}`);
+            }
+        }
+    });
+}
+
+// ===============================================
+// INICIALIZAR
+// ===============================================
+loadUserData();
+</script>
+</body>
+</html>

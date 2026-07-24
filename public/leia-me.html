@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leia-me - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); padding: 20px; }
+        .container { background: var(--bg-container); padding: 24px 20px; border-radius: 20px; border: 1px solid var(--border-color); max-width: 600px; margin: 0 auto; }
+        h1 { color: var(--accent-gold); font-size: 22px; margin-bottom: 4px; }
+        .subtitle { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
+        h2 { color: var(--text-primary); font-size: 16px; margin: 20px 0 8px; }
+        p, li { color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: 8px; }
+        ul { padding-left: 20px; }
+        .box { background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; margin: 10px 0; }
+        .warn { background: #fdf3e0; border-left: 4px solid var(--accent-orange); }
+        .btn-back { display: inline-block; margin-top: 20px; background: var(--accent-gold); color: #fff; padding: 10px 20px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 14px; }
+        .btn-back:hover { background: var(--accent-orange); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📖 Como funciona o Papalegua</h1>
+        <div class="subtitle">Guia rápido de acesso e recuperação de conta</div>
+
+        <h2>🆕 Criar conta nova</h2>
+        <p>Escolha um apelido e o app gera automaticamente suas chaves de identidade. Não existe cadastro com e-mail ou telefone — sua conta é o seu ID.</p>
+
+        <h2>📂 Entrar com arquivo</h2>
+        <p>Se você exportou sua conta como arquivo <strong>.json</strong>, pode importá-lo em qualquer dispositivo pra recuperar seu acesso, usando a senha que você definiu na exportação.</p>
+
+        <h2>🔑 Entrar com frase secreta</h2>
+        <p>Sua conta tem uma frase de 12 palavras gerada automaticamente. Ela permite recuperar acesso caso você perca o arquivo exportado.</p>
+
+        <h2>🔒 Entrar com QR de recuperação</h2>
+        <div class="box">
+            <p>Na tela de <strong>Perfil</strong>, você pode gerar um QR Code de recuperação de conta e imprimir para guardar em local seguro (carteira, cofre, gaveta).</p>
+            <p>Esse QR permite recuperar sua conta rapidamente em um novo dispositivo, sem precisar digitar a frase secreta.</p>
+        </div>
+        <div class="box warn">
+            <strong>⚠️ Importante:</strong>
+            <ul>
+                <li>Cada QR impresso <strong>funciona apenas uma vez</strong>. Depois de usado para recuperar a conta, ele deixa de funcionar automaticamente.</li>
+                <li>Depois de recuperar sua conta com um QR, gere e imprima um <strong>novo QR</strong> nas configurações, para ter uma recuperação disponível caso precise de novo no futuro.</li>
+                <li>Qualquer pessoa que tiver acesso ao QR impresso pode acessar sua conta. Guarde-o com segurança.</li>
+            </ul>
+        </div>
+
+        <h2>📱 Sobre o app instalado (APK)</h2>
+        <p>Depois de instalado, o Papalegua mantém sua sessão ativa automaticamente — você não precisa fazer login toda vez que abre o app. As opções de recuperação acima só são necessárias se você trocar de aparelho, reinstalar o app, ou perder o acesso à sessão atual.</p>
+
+        <a href="/login.html" class="btn-back">← Voltar ao login</a>
+    </div>
+</body>
+</html>

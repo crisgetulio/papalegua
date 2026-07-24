@@ -1,0 +1,12 @@
+```gitignore
+firebase-service-account.json
+users.db
+*.db
+*.bak*
+*.bak.*
+uploads/
+private_uploads/
+data/
+*.log
+.env
+```

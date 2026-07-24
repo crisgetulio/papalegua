@@ -1,0 +1,1261 @@
+require('dotenv').config();
+const CryptoJS = require("crypto-js");
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const session = require('express-session');
+const bcrypt = require('bcrypt');
+const Database = require('better-sqlite3');
+const multer = require('multer');
+const fs = require('fs-extra');
+const path = require('path');
+const crypto = require('crypto');
+const admin = require('firebase-admin');
+const SqliteStore = require('better-sqlite3-session-store')(session);
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, { pingTimeout: 120000, pingInterval: 25000 });
+
+app.set('trust proxy', 1);
+
+const BASE_DIR = __dirname;
+const DATA_DIR = path.join(BASE_DIR, 'data');
+const UPLOAD_DIR = path.join(BASE_DIR, 'uploads');
+const AVATAR_DIR = path.join(UPLOAD_DIR, 'avatars');
+const PRIVATE_UPLOADS_DIR = path.join(BASE_DIR, 'private_uploads');
+const PUBLIC_DIR = path.join(BASE_DIR, 'public');
+const DB_PATH = path.join(DATA_DIR, 'users.db');
+const MSG_FILE = path.join(DATA_DIR, 'messages.json');
+const NOTICE_FILE = path.join(DATA_DIR, 'notice.json');
+const VERSION_FILE = path.join(DATA_DIR, 'version.json');
+
+[DATA_DIR, UPLOAD_DIR, AVATAR_DIR, PRIVATE_UPLOADS_DIR, PUBLIC_DIR].forEach(dir => {
+    fs.ensureDirSync(dir);
+    try { fs.chmodSync(dir, 0o755); } catch(e) {}
+});
+
+const db = new Database(DB_PATH);
+
+try {
+    if (fs.existsSync('./firebase-service-account.json')) {
+        admin.initializeApp({ credential: admin.credential.cert(require('./firebase-service-account.json')) });
+    }
+} catch(e) { console.log('Firebase não configurado'); }
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        phone TEXT DEFAULT '',
+        address TEXT DEFAULT '',
+        password_hash TEXT NOT NULL,
+        avatar_url TEXT DEFAULT '/uploads/avatars/default.png',
+        fcm_token TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS read_receipts (
+        user_id INTEGER NOT NULL,
+        other_user_id INTEGER NOT NULL,
+        last_read_id INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, other_user_id)
+    );
+    CREATE TABLE IF NOT EXISTS push_tokens (
+        user_id INTEGER NOT NULL,
+        token TEXT UNIQUE NOT NULL,
+        PRIMARY KEY (user_id, token)
+    );
+    CREATE TABLE IF NOT EXISTS private_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user_id INTEGER NOT NULL,
+        to_user_id INTEGER NOT NULL,
+        text TEXT,
+        type TEXT DEFAULT 'text',
+        url TEXT,
+        audio_url TEXT,
+        name TEXT,
+        size INTEGER,
+        reply_to_id INTEGER,
+        reply_to_text TEXT,
+        reply_to_sender TEXT,
+        timestamp TEXT DEFAULT (datetime('now')),
+        edited INTEGER DEFAULT 0,
+        deleted INTEGER DEFAULT 0,
+        FOREIGN KEY (from_user_id) REFERENCES users(id),
+        FOREIGN KEY (to_user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_private_messages_from_to ON private_messages(from_user_id, to_user_id);
+    CREATE INDEX IF NOT EXISTS idx_private_messages_to_from ON private_messages(to_user_id, from_user_id);
+`);
+
+const defaultAvatarSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#1f2937"/><circle cx="50" cy="38" r="18" fill="#d4af37" opacity="0.8"/><ellipse cx="50" cy="80" rx="28" ry="20" fill="#d4af37" opacity="0.8"/></svg>`;
+const defaultAvatarPath = path.join(AVATAR_DIR, 'default.svg');
+if (!fs.existsSync(defaultAvatarPath)) fs.writeFileSync(defaultAvatarPath, defaultAvatarSVG);
+const defaultAvatarPng = path.join(AVATAR_DIR, 'default.png');
+if (!fs.existsSync(defaultAvatarPng)) {
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    fs.writeFileSync(defaultAvatarPng, Buffer.from(pngBase64, 'base64'));
+}
+
+// ===== RECADOS =====
+let notice = null;
+if (fs.existsSync(NOTICE_FILE)) {
+    try { notice = fs.readJsonSync(NOTICE_FILE); } catch(e) { notice = null; }
+}
+function saveNotice(data) {
+    notice = data;
+    try { fs.writeJsonSync(NOTICE_FILE, data); } catch(e) { console.error('Erro ao salvar recado:', e); }
+}
+
+// ===== VERSÃO =====
+let versionInfo = null;
+function loadVersion() {
+    try {
+        if (fs.existsSync(VERSION_FILE)) {
+            versionInfo = fs.readJsonSync(VERSION_FILE);
+        } else {
+            versionInfo = { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false, updatedAt: new Date().toISOString() };
+            fs.writeJsonSync(VERSION_FILE, versionInfo, { spaces: 2 });
+        }
+    } catch(e) {
+        console.error('Erro ao carregar versão:', e);
+        versionInfo = { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false };
+    }
+    return versionInfo;
+}
+function saveVersion(data) {
+    versionInfo = data;
+    try { fs.writeJsonSync(VERSION_FILE, data, { spaces: 2 }); } catch(e) { console.error('Erro ao salvar versão:', e); }
+}
+loadVersion();
+
+// ===== MENSAGENS PÚBLICAS =====
+let messages = [];
+if (fs.existsSync(MSG_FILE)) {
+    try { messages = fs.readJsonSync(MSG_FILE); if (messages.length > 500) messages = messages.slice(-500); } catch(e) { messages = []; }
+}
+function saveMessages() {
+    if (messages.length > 500) messages = messages.slice(-500);
+    try { fs.writeJsonSync(MSG_FILE, messages); } catch(e) { console.error('Erro ao salvar mensagens:', e); }
+}
+
+// ===== SESSÃO =====
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const sessionMiddleware = session({
+    store: new SqliteStore({
+        client: db,
+        expired: { clear: true, intervalMs: 900000 }
+    }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: {
+        maxAge: 365 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: false
+    }
+});
+
+app.use(sessionMiddleware);
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/apk', express.static(path.join(PUBLIC_DIR, 'apk')));
+app.use(express.static(PUBLIC_DIR));
+
+function requireAuth(req, res, next) {
+    if (!req.session?.userId) return res.status(401).json({ error: 'Não autenticado' });
+    next();
+}
+
+function isAdmin(userId) {
+    const adminUser = db.prepare(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).get();
+    return adminUser && adminUser.id === userId;
+}
+
+// ===== ROTAS DE AUTENTICAÇÃO =====
+app.get('/', (req, res) => {
+    if (req.session?.userId) res.redirect('/contacts.html');
+    else res.redirect('/login.html');
+});
+
+app.post('/api/register', async (req, res) => {
+    try {
+        let { username, email, phone, address, password } = req.body;
+        username = (username || '').trim();
+        email = (email || '').trim().toLowerCase();
+        phone = (phone || '').trim();
+        address = (address || '').trim();
+        password = (password || '').trim();
+
+        if (!username || !email || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+        if (username.length < 3) return res.status(400).json({ error: 'Usuário deve ter ao menos 3 caracteres' });
+        if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+        const hash = await bcrypt.hash(password, 10);
+                // Gerar chaves para o usuário
+
+                const keys = generateKeyPair();
+
+                const onionId = generateOnionId();
+
+                db.prepare(`INSERT INTO users (username, email, phone, address, password_hash, public_key, private_key, onion_id) VALUES (?,?,?,?,?,?,?,?)`)
+
+                  .run(username, email, phone, address, hash, keys.publicKey, keys.privateKey, onionId);
+        res.json({ success: true });
+    } catch(e) {
+        if (e.message.includes('UNIQUE')) {
+            if (e.message.includes('username')) return res.status(400).json({ error: 'Nome de usuário já em uso' });
+            if (e.message.includes('email')) return res.status(400).json({ error: 'E-mail já cadastrado' });
+        }
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Credenciais inválidas' });
+    const user = db.prepare(`SELECT * FROM users WHERE username = ? OR email = ?`).get(username.trim(), username.trim().toLowerCase());
+    if (!user) return res.status(401).json({ error: 'Credenciais inválidas' });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Credenciais inválidas' });
+    req.session.userId = user.id;
+    req.session.save(err => {
+        if (err) return res.status(500).json({ error: 'Erro interno' });
+        res.json({ success: true, user: { id: user.id, username: user.username, avatar: user.avatar_url } });
+    });
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(() => res.clearCookie('connect.sid').json({ success: true }));
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+    const user = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(req.session.userId);
+    res.json(user);
+});
+
+app.get('/api/users', requireAuth, (req, res) => {
+    const users = db.prepare(`SELECT id, username, avatar_url FROM users WHERE id != ? ORDER BY username ASC`).all(req.session.userId);
+    res.json(users);
+});
+
+app.get('/api/users/status', requireAuth, (req, res) => {
+    const ids = req.query.ids ? req.query.ids.split(',').map(Number).filter(n => !isNaN(n)) : [];
+    const status = {};
+    ids.forEach(id => { status[id] = onlineUsers.has(id); });
+    res.json(status);
+});
+
+app.get('/api/user/:id', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json(user);
+});
+
+app.post('/api/user/update', requireAuth, (req, res) => {
+    const multer = require('multer');
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const avatarUpload = multer({
+        dest: AVATAR_DIR,
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (req, file, cb) => {
+            if (ALLOWED_TYPES.includes(file.mimetype)) cb(null, true);
+            else cb(new Error('Tipo de arquivo não permitido'));
+        }
+    });
+    
+    avatarUpload.single('avatar')(req, res, async (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Imagem muito grande (máx 5MB)' });
+            return res.status(400).json({ error: err.message });
+        }
+        let { username, email, phone, address, password } = req.body;
+        username = (username || '').trim();
+        email = (email || '').trim().toLowerCase();
+        phone = (phone || '').trim();
+        address = (address || '').trim();
+        password = (password || '').trim();
+
+        const userId = req.session.userId;
+        if (!username || !email) return res.status(400).json({ error: 'Nome e e-mail obrigatórios' });
+        try {
+            db.prepare(`UPDATE users SET username = ?, email = ?, phone = ?, address = ? WHERE id = ?`)
+              .run(username, email, phone, address, userId);
+            if (req.file) {
+                const ext = req.file.mimetype.split('/')[1].replace('jpeg','jpg');
+                const finalName = `avatar_${userId}_${Date.now()}.${ext}`;
+                const finalPath = path.join(AVATAR_DIR, finalName);
+                fs.moveSync(req.file.path, finalPath, { overwrite: true });
+                const avatarUrl = `/uploads/avatars/${finalName}`;
+                db.prepare(`UPDATE users SET avatar_url = ? WHERE id = ?`).run(avatarUrl, userId);
+            }
+            if (password) {
+                if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+                const hash = await bcrypt.hash(password, 10);
+                db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, userId);
+            }
+            const updatedUser = db.prepare(`SELECT id, username, email, phone, address, avatar_url FROM users WHERE id = ?`).get(userId);
+            res.json({ success: true, user: updatedUser });
+        } catch (dbErr) {
+            if (dbErr.message.includes('UNIQUE')) {
+                if (dbErr.message.includes('username')) return res.status(400).json({ error: 'Nome de usuário já em uso' });
+                if (dbErr.message.includes('email')) return res.status(400).json({ error: 'E-mail já cadastrado' });
+            }
+            res.status(400).json({ error: 'Erro ao atualizar: ' + dbErr.message });
+        }
+    });
+});
+
+app.delete('/api/user/delete', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    try {
+        db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+        req.session.destroy(() => {
+            res.clearCookie('connect.sid');
+            res.json({ success: true });
+        });
+    } catch(e) { res.status(500).json({ error: 'Erro ao excluir conta' }); }
+});
+
+app.get('/api/private-messages', requireAuth, (req, res) => {
+    const { withUserId, limit = 100, before } = req.query;
+    if (!withUserId) return res.status(400).json({ error: 'withUserId obrigatório' });
+    const currentId = req.session.userId;
+    const otherId = parseInt(withUserId);
+    let query = `SELECT * FROM private_messages WHERE 
+        (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)`;
+    const params = [currentId, otherId, otherId, currentId];
+    if (before) {
+        query += ` AND id < ?`;
+        params.push(parseInt(before));
+    }
+    query += ` ORDER BY id DESC LIMIT ?`;
+    params.push(parseInt(limit));
+    const msgs = db.prepare(query).all(...params).reverse();
+    const receipt = db.prepare(`SELECT last_read_id FROM read_receipts WHERE user_id = ? AND other_user_id = ?`).get(otherId, currentId);
+    const otherLastRead = receipt ? receipt.last_read_id : 0;
+    const enriched = msgs.map(msg => {
+        msg.read = msg.from_user_id === currentId ? msg.id <= otherLastRead : false;
+        msg.fromUserId = msg.from_user_id;
+        msg.toUserId = msg.to_user_id;
+        return msg;
+    });
+    res.json(enriched);
+});
+
+app.post('/api/mark-read', requireAuth, (req, res) => {
+    const { withUserId, lastMessageId } = req.body;
+    if (!withUserId || !lastMessageId) return res.status(400).json({ error: 'Parâmetros obrigatórios' });
+    const myId = req.session.userId;
+    db.prepare(`INSERT OR REPLACE INTO read_receipts (user_id, other_user_id, last_read_id) VALUES (?, ?, ?)`).run(myId, parseInt(withUserId), parseInt(lastMessageId));
+    res.json({ success: true });
+});
+
+app.post('/api/private-message', requireAuth, (req, res) => {
+    const { toUserId, text, type, url, audioUrl, name, size, replyToId, replyToText, replyToSender } = req.body;
+    if (!toUserId) return res.status(400).json({ error: 'toUserId obrigatório' });
+    
+    const fromUserId = req.session.userId;
+    const fromUser = db.prepare(`SELECT username, avatar_url FROM users WHERE id = ?`).get(fromUserId);
+    
+    const stmt = db.prepare(`
+        INSERT INTO private_messages 
+        (from_user_id, to_user_id, text, type, url, audio_url, name, size, reply_to_id, reply_to_text, reply_to_sender)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+        fromUserId,
+        parseInt(toUserId),
+        (text || '').substring(0, 2000),
+        type || 'text',
+        url || null,
+        audioUrl || null,
+        name || null,
+        size || null,
+        replyToId || null,
+        replyToText || null,
+        replyToSender || null
+    );
+    
+    const newMsg = {
+        id: info.lastInsertRowid,
+        from_user_id: fromUserId,
+        to_user_id: parseInt(toUserId),
+        text: (text || '').substring(0, 2000),
+        type: type || 'text',
+        url: url || null,
+        audio_url: audioUrl || null,
+        name: name || null,
+        size: size || null,
+        reply_to_id: replyToId || null,
+        reply_to_text: replyToText || null,
+        reply_to_sender: replyToSender || null,
+        timestamp: new Date().toISOString(),
+        fromUsername: fromUser.username,
+        fromAvatar: fromUser.avatar_url,
+        edited: 0,
+        read: false
+    };
+    
+    io.to(`user_${toUserId}`).emit('private message', newMsg);
+    io.to(`user_${fromUserId}`).emit('private message', newMsg);
+    
+    res.json({ success: true, message: newMsg });
+});
+
+app.post('/upload-chunk', requireAuth, (req, res) => {
+    const { fileId, chunkIndex, totalChunks, fileName, fileSize, chunk, isPrivate } = req.body;
+    const userId = req.session.userId;
+    if (!fileId) return res.status(400).json({ error: 'fileId obrigatório' });
+    
+    const baseDir = isPrivate ? PRIVATE_UPLOADS_DIR : UPLOAD_DIR;
+    const chunkDir = path.join(baseDir, `temp_${fileId}`);
+    fs.ensureDirSync(chunkDir);
+    fs.writeFileSync(path.join(chunkDir, `chunk_${chunkIndex}`), Buffer.from(chunk, 'base64'));
+
+    if (parseInt(chunkIndex) === parseInt(totalChunks) - 1) {
+        const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const finalName = `${Date.now()}_${safeName}`;
+        const finalPath = path.join(baseDir, finalName);
+        const ws = fs.createWriteStream(finalPath);
+        for (let i = 0; i < totalChunks; i++) {
+            const cp = path.join(chunkDir, `chunk_${i}`);
+            if (fs.existsSync(cp)) ws.write(fs.readFileSync(cp));
+            fs.unlinkSync(cp);
+        }
+        ws.end();
+        fs.removeSync(chunkDir);
+        const url = isPrivate ? `/private-download/${finalName}` : `/uploads/${finalName}`;
+        if (!isPrivate) {
+            const userInfo = db.prepare(`SELECT username, avatar_url FROM users WHERE id = ?`).get(userId);
+            const fullMsg = {
+                uniqueId: `${Date.now()}-${fileId}`,
+                userId,
+                nickname: userInfo.username,
+                avatar: userInfo.avatar_url,
+                url,
+                name: safeName,
+                size: fileSize,
+                type: 'file',
+                timestamp: new Date().toISOString()
+            };
+            messages.push(fullMsg);
+            saveMessages();
+            io.emit('chat message', fullMsg);
+        }
+        res.json({ done: true, url });
+    } else {
+        res.json({ done: false });
+    }
+});
+
+app.get('/private-download/:filename', requireAuth, (req, res) => {
+    const filename = path.basename(req.params.filename);
+    const filepath = path.join(PRIVATE_UPLOADS_DIR, filename);
+    if (fs.existsSync(filepath)) res.sendFile(filepath);
+    else res.status(404).json({ error: 'Arquivo não encontrado' });
+});
+
+app.get('/api/notice', (req, res) => {
+    res.json(notice || { active: false, message: '' });
+});
+
+app.post('/api/notice', requireAuth, (req, res) => {
+    const { message, active } = req.body;
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode criar recados' });
+    }
+    const data = {
+        active: active !== undefined ? active : true,
+        message: message || '',
+        updatedAt: new Date().toISOString(),
+        createdBy: req.session.userId
+    };
+    saveNotice(data);
+    io.emit('notice update', data);
+    res.json({ success: true, notice: data });
+});
+
+app.delete('/api/notice', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode remover recados' });
+    }
+    saveNotice(null);
+    io.emit('notice update', null);
+    res.json({ success: true });
+});
+
+app.get('/api/version', (req, res) => {
+    const current = versionInfo || { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false };
+    res.json(current);
+});
+
+// ===== SOCKET.IO =====
+let onlineUsers = new Map();
+io.use((socket, next) => sessionMiddleware(socket.request, socket.request.res || {}, next));
+
+io.on('connection', (socket) => {
+    const sessionUserId = socket.request.session?.userId;
+    if (!sessionUserId) {
+        socket.emit('auth error', 'Não autenticado');
+        socket.disconnect();
+        return;
+    }
+    const user = db.prepare(`SELECT id, username, avatar_url FROM users WHERE id = ?`).get(sessionUserId);
+    if (!user) return socket.disconnect();
+    const userId = user.id;
+    const userInfo = { username: user.username, avatar: user.avatar_url };
+
+    socket.join(`user_${userId}`);
+    onlineUsers.set(userId, socket.id);
+    io.emit('user online', { userId, username: userInfo.username });
+
+    if (notice) {
+        socket.emit('notice update', notice);
+    }
+
+    socket.emit('chat history', messages);
+
+    socket.on('private message', (data) => {
+
+        const { toUserId, text, type, url, audioUrl, name, size, replyToId, replyToText, replyToSender, timer } = data;
+
+        if (!toUserId) return;
+
+        const fromUserId = userId;
+
+        const fromUser = db.prepare('SELECT username, avatar_url FROM users WHERE id = ?').get(fromUserId);
+
+        
+
+        // Buscar chave pública do destinatário
+
+        const recipient = db.prepare('SELECT public_key FROM users WHERE id = ?').get(toUserId);
+
+        let encryptedText = null;
+
+        let isEncrypted = 0;
+
+        
+
+        // Se for mensagem de texto e tiver chave pública, criptografar
+
+        if (type === 'text' && text && recipient && recipient.public_key) {
+
+            encryptedText = encryptMessage(text, recipient.public_key);
+
+            isEncrypted = 1;
+
+        }
+
+        
+
+        // Calcular expiração (timer em segundos)
+
+        let expiresAt = 0;
+
+        if (timer && timer > 0) {
+
+            expiresAt = Date.now() + (timer * 1000);
+
+        }
+
+        
+
+        const stmt = db.prepare(`
+
+            INSERT INTO private_messages 
+
+            (from_user_id, to_user_id, text, encrypted_text, is_encrypted, type, url, audio_url, name, size, reply_to_id, reply_to_text, reply_to_sender, expires_at)
+
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+        `);
+
+        
+
+        const info = stmt.run(
+
+            fromUserId,
+
+            parseInt(toUserId),
+
+            isEncrypted ? null : (text || '').substring(0, 2000),
+
+            encryptedText,
+
+            isEncrypted,
+
+            type || 'text',
+
+            url || null,
+
+            audioUrl || null,
+
+            name || null,
+
+            size || null,
+
+            replyToId || null,
+
+            replyToText || null,
+
+            replyToSender || null,
+
+            expiresAt
+
+        );
+
+        
+
+        const newMsg = {
+
+            id: info.lastInsertRowid,
+
+            from_user_id: fromUserId,
+
+            to_user_id: parseInt(toUserId),
+
+            text: isEncrypted ? '🔒 Mensagem criptografada' : (text || ''),
+
+            encrypted_text: encryptedText,
+
+            is_encrypted: isEncrypted,
+
+            type: type || 'text',
+
+            url: url || null,
+
+            audio_url: audioUrl || null,
+
+            name: name || null,
+
+            size: size || null,
+
+            reply_to_id: replyToId || null,
+
+            reply_to_text: replyToText || null,
+
+            reply_to_sender: replyToSender || null,
+
+            timestamp: new Date().toISOString(),
+
+            fromUsername: fromUser.username,
+
+            fromAvatar: fromUser.avatar_url,
+
+            edited: 0,
+
+            read: false,
+
+            expires_at: expiresAt,
+
+            timer: timer || 0
+
+        };
+
+        
+
+        io.to(`user_${toUserId}`).emit('private message', newMsg);
+
+        socket.emit('private message', newMsg);
+
+    });
+
+    socket.on('mark read', ({ withUserId, lastMessageId }) => {
+        if (withUserId && lastMessageId) {
+            db.prepare(`INSERT OR REPLACE INTO read_receipts (user_id, other_user_id, last_read_id) VALUES (?, ?, ?)`)
+              .run(userId, parseInt(withUserId), parseInt(lastMessageId));
+            io.to(`user_${withUserId}`).emit('messages read', { byUserId: userId });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        if (onlineUsers.get(userId) === socket.id) {
+            onlineUsers.delete(userId);
+            io.emit('user offline', { userId });
+        }
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => console.log(`🚗 Papalegua rodando na porta ${PORT}`));
+
+// ===== ROTAS DE VERSÃO =====
+app.get('/api/version', (req, res) => {
+    const current = versionInfo || { version: "1.0.0", versionCode: 1, apkUrl: "", releaseNotes: "", forced: false };
+    res.json(current);
+});
+
+app.get('/api/admin/version', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode acessar' });
+    }
+    res.json(versionInfo || { version: "1.0.0", versionCode: 1 });
+});
+
+app.post('/api/admin/version', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode gerenciar versões' });
+    }
+    const { version, versionCode, releaseNotes, forced } = req.body;
+    if (!version || !versionCode) {
+        return res.status(400).json({ error: 'Versão e código de versão são obrigatórios' });
+    }
+    const data = {
+        version: version,
+        versionCode: parseInt(versionCode),
+        apkUrl: versionInfo?.apkUrl || '',
+        releaseNotes: releaseNotes || '',
+        forced: forced || false,
+        updatedAt: new Date().toISOString()
+    };
+    saveVersion(data);
+    io.emit('new version', { 
+        version: data.version, 
+        versionCode: data.versionCode,
+        releaseNotes: data.releaseNotes,
+        forced: data.forced,
+        apkUrl: data.apkUrl
+    });
+    res.json({ success: true, version: data });
+});
+
+const apkUpload = multer({
+    dest: path.join(PUBLIC_DIR, 'apk'),
+    limits: { fileSize: 100 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/vnd.android.package-archive' || file.originalname.endsWith('.apk')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Apenas arquivos .apk são permitidos'));
+        }
+    }
+});
+
+app.post('/api/admin/upload-apk', requireAuth, (req, res) => {
+    if (!isAdmin(req.session.userId)) {
+        return res.status(403).json({ error: 'Apenas o administrador pode fazer upload' });
+    }
+    apkUpload.single('apk')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+        const ext = path.extname(req.file.originalname);
+        const newName = `papalegua-${Date.now()}${ext}`;
+        const newPath = path.join(PUBLIC_DIR, 'apk', newName);
+        try {
+            fs.moveSync(req.file.path, newPath, { overwrite: true });
+            if (versionInfo) {
+                versionInfo.apkUrl = `/apk/${newName}`;
+                saveVersion(versionInfo);
+            }
+            res.json({ success: true, url: `/apk/${newName}`, filename: newName });
+        } catch(e) {
+            res.status(500).json({ error: 'Erro ao salvar arquivo: ' + e.message });
+        }
+    });
+});
+
+// ===== SOBRESCREVER FUNÇÃO isAdmin =====
+// A função original verifica apenas se o usuário é o primeiro da lista (ID 1)
+// Vamos garantir que qualquer usuário logado possa acessar se for admin
+// Mas só o ID 1 tem permissões de admin
+
+// Não precisa sobrescrever, já está correto.
+// O problema pode ser que o cookie não está sendo enviado.
+
+// ===== SISTEMA DE CHAVES (Signal Protocol Simples) =====
+
+// Gerar chave pública/privada
+function generateKeyPair() {
+    const privateKey = CryptoJS.lib.WordArray.random(32).toString();
+    const publicKey = CryptoJS.SHA256(privateKey).toString();
+    return { publicKey, privateKey };
+}
+
+// Criptografar mensagem com chave pública do destinatário
+function encryptMessage(text, publicKey) {
+    return CryptoJS.AES.encrypt(text, publicKey).toString();
+}
+
+// Descriptografar com chave privada
+function decryptMessage(encrypted, privateKey) {
+    try {
+        const bytes = CryptoJS.AES.decrypt(encrypted, privateKey);
+        return bytes.toString(CryptoJS.enc.Utf8);
+    } catch(e) {
+        return null;
+    }
+}
+
+// Gerar ID onion (anonimato)
+function generateOnionId() {
+    return CryptoJS.lib.WordArray.random(16).toString();
+}
+
+// Número de segurança (verificação)
+function getSecurityNumber(publicKey) {
+    const hash = CryptoJS.SHA256(publicKey).toString().toUpperCase();
+    return hash.slice(0, 12);
+}
+
+// ===== GERAR CHAVES NO REGISTRO =====
+// Modificar a rota /api/register para gerar chaves
+// (adicionar no início da função, antes de salvar o usuário)
+// const { publicKey, privateKey } = generateKeyPair();
+// const onionId = generateOnionId();
+
+// ===== ROTA PARA OBTER CHAVE PÚBLICA DE UM USUÁRIO =====
+app.get('/api/user/:id/public-key', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT public_key FROM users WHERE id = ?`).get(userId);
+    if (!user || !user.public_key) {
+        return res.status(404).json({ error: 'Chave pública não encontrada' });
+    }
+    res.json({ publicKey: user.public_key });
+});
+
+// ===== ROTA PARA OBTER NÚMERO DE SEGURANÇA =====
+app.get('/api/user/:id/security-number', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT public_key FROM users WHERE id = ?`).get(userId);
+    if (!user || !user.public_key) {
+        return res.status(404).json({ error: 'Chave pública não encontrada' });
+    }
+    const securityNumber = getSecurityNumber(user.public_key);
+    res.json({ securityNumber });
+});
+
+
+// ===== SISTEMA DE CHAVES =====
+function generateKeyPair() {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' }
+    });
+    const onionId = crypto.randomBytes(16).toString('hex');
+    return { publicKey, privateKey, onionId };
+}
+
+// Sobrescrever rota de registro para gerar chaves
+const originalRegister = app.post.bind(app, '/api/register');
+app.post('/api/register', async (req, res) => {
+    try {
+        let { username, email, phone, address, password } = req.body;
+        username = (username || '').trim();
+        email = (email || '').trim().toLowerCase();
+        phone = (phone || '').trim();
+        address = (address || '').trim();
+        password = (password || '').trim();
+
+        if (!username || !email || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+        if (username.length < 3) return res.status(400).json({ error: 'Usuário deve ter ao menos 3 caracteres' });
+        if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+
+        const hash = await bcrypt.hash(password, 10);
+        const keys = generateKeyPair();
+
+        const stmt = db.prepare(`
+            INSERT INTO users 
+            (username, email, phone, address, password_hash, public_key, private_key, onion_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(username, email, phone, address, hash, keys.publicKey, keys.privateKey, keys.onionId);
+
+        res.json({ 
+            success: true, 
+            user: { 
+                username, 
+                email, 
+                onionId: keys.onionId 
+            } 
+        });
+    } catch(e) {
+        if (e.message.includes('UNIQUE')) {
+            if (e.message.includes('username')) return res.status(400).json({ error: 'Nome de usuário já em uso' });
+            if (e.message.includes('email')) return res.status(400).json({ error: 'E-mail já cadastrado' });
+        }
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Rota para obter chave pública de um usuário
+app.get('/api/user/:id/public-key', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT public_key, onion_id FROM users WHERE id = ?`).get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ publicKey: user.public_key, onionId: user.onion_id });
+});
+
+// Rota para verificar segurança (números)
+app.get('/api/user/:id/security-number', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare(`SELECT public_key FROM users WHERE id = ?`).get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    
+    // Gerar número de segurança (primeiros 12 caracteres do hash da chave pública)
+    const hash = crypto.createHash('sha256').update(user.public_key).digest('hex').toUpperCase();
+    const securityNumber = hash.slice(0, 12).replace(/(.{4})/g, '$1 ').trim();
+    res.json({ securityNumber });
+});
+
+// Criptografar mensagem (rota auxiliar)
+app.post('/api/encrypt', requireAuth, (req, res) => {
+    const { text, publicKey } = req.body;
+    if (!text || !publicKey) return res.status(400).json({ error: 'text e publicKey obrigatórios' });
+    
+    const encrypted = crypto.publicEncrypt(publicKey, Buffer.from(text));
+    res.json({ encrypted: encrypted.toString('base64') });
+});
+
+// Descriptografar mensagem (rota auxiliar)
+app.post('/api/decrypt', requireAuth, (req, res) => {
+    const { encrypted, privateKey } = req.body;
+    if (!encrypted || !privateKey) return res.status(400).json({ error: 'encrypted e privateKey obrigatórios' });
+    
+    try {
+        const decrypted = crypto.privateDecrypt(privateKey, Buffer.from(encrypted, 'base64'));
+        res.json({ decrypted: decrypted.toString('utf8') });
+    } catch(e) {
+        res.status(400).json({ error: 'Erro ao descriptografar' });
+    }
+});
+
+console.log('🔐 Sistema de chaves carregado!');
+
+// ===== SISTEMA DE CHAVES (Signal Protocol Simples) =====
+
+// Gerar par de chaves para novo usuário
+function generateKeyPair() {
+    const privateKey = CryptoJS.lib.WordArray.random(32).toString();
+    const publicKey = CryptoJS.SHA256(privateKey).toString();
+    return { publicKey, privateKey };
+}
+
+// Gerar ID onion (identificador anônimo)
+function generateOnionId() {
+    return CryptoJS.lib.WordArray.random(16).toString();
+}
+
+// Criptografar mensagem com chave pública do destinatário
+function encryptMessage(text, publicKey) {
+    try {
+        return CryptoJS.AES.encrypt(text, publicKey).toString();
+    } catch(e) {
+        return null;
+    }
+}
+
+// Descriptografar mensagem com chave privada
+function decryptMessage(encrypted, privateKey) {
+    try {
+        const bytes = CryptoJS.AES.decrypt(encrypted, privateKey);
+        return bytes.toString(CryptoJS.enc.Utf8);
+    } catch(e) {
+        return null;
+    }
+}
+
+// Gerar número de segurança (para verificação)
+function getSecurityNumber(publicKey) {
+    const hash = CryptoJS.SHA256(publicKey).toString(CryptoJS.enc.Hex).toUpperCase();
+    // Formatar como grupos de 4 dígitos: A3F8 9C2D 1E4B 7H6G
+    const groups = hash.match(/.{1,4}/g) || [];
+    return groups.slice(0, 4).join(' ');
+}
+
+// ===== ADICIONAR CHAVES NO REGISTRO =====
+// Modificar a rota /api/register para gerar chaves
+// Esta é uma sobrescrita - a rota original já existe, vamos adicionar a lógica
+const originalRegister = app.post.bind(app);
+app.post = function(path, ...handlers) {
+    if (path === '/api/register') {
+        // Envolver o handler original para adicionar chaves
+        const originalHandler = handlers[0];
+        const newHandler = async (req, res) => {
+            try {
+                // Chamar o handler original (que já existe no código)
+                // Mas como estamos sobrescrevendo, vamos executar nossa versão
+                let { username, email, phone, address, password } = req.body;
+                username = (username || '').trim();
+                email = (email || '').trim().toLowerCase();
+                phone = (phone || '').trim();
+                address = (address || '').trim();
+                password = (password || '').trim();
+
+                if (!username || !email || !password) {
+                    return res.status(400).json({ error: 'Campos obrigatórios' });
+                }
+                if (username.length < 3) {
+                    return res.status(400).json({ error: 'Usuário deve ter ao menos 3 caracteres' });
+                }
+                if (password.length < 6) {
+                    return res.status(400).json({ error: 'Senha deve ter ao menos 6 caracteres' });
+                }
+
+                const hash = await bcrypt.hash(password, 10);
+                
+                // Gerar chaves e ID onion
+                const { publicKey, privateKey } = generateKeyPair();
+                const onionId = generateOnionId();
+                const securityNumber = getSecurityNumber(publicKey);
+
+                db.prepare(`
+                    INSERT INTO users 
+                    (username, email, phone, address, password_hash, public_key, private_key, onion_id, security_number) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    username, email, phone, address, hash,
+                    publicKey, privateKey, onionId, securityNumber
+                );
+
+                res.json({ 
+                    success: true, 
+                    user: { username, email, publicKey, onionId, securityNumber }
+                });
+            } catch(e) {
+                if (e.message.includes('UNIQUE')) {
+                    if (e.message.includes('username')) {
+                        return res.status(400).json({ error: 'Nome de usuário já em uso' });
+                    }
+                    if (e.message.includes('email')) {
+                        return res.status(400).json({ error: 'E-mail já cadastrado' });
+                    }
+                    if (e.message.includes('onion_id')) {
+                        return res.status(400).json({ error: 'Erro ao gerar ID anônimo' });
+                    }
+                }
+                res.status(400).json({ error: e.message });
+            }
+        };
+        // Aplicar a nova função
+        app._router.route(path).post(newHandler);
+        return;
+    }
+    // Para outras rotas, usar o comportamento padrão
+    app._router.route(path)[handlers.length > 1 ? 'post' : 'get'](handlers[0]);
+};
+
+// ===== ROTA PARA OBTER CHAVE PÚBLICA DE UM USUÁRIO =====
+app.get('/api/user/:id/public-key', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare('SELECT public_key, onion_id FROM users WHERE id = ?').get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ publicKey: user.public_key, onionId: user.onion_id });
+});
+
+// ===== ROTA PARA VERIFICAR SEGURANÇA (Número de segurança) =====
+app.get('/api/user/:id/security', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ error: 'ID inválido' });
+    const user = db.prepare('SELECT security_number FROM users WHERE id = ?').get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ securityNumber: user.security_number });
+});
+
+// ===== SOBRESCREVER O ENVIO DE MENSAGENS PARA CRIPTOGRAFAR =====
+// Guardar o handler original do Socket.IO
+const originalPrivateMessageHandler = io._events['connection']?._events?.['private message'];
+
+// Adicionar criptografia no socket 'private message'
+// Como já temos a implementação, vamos modificar o comportamento
+// Vamos adicionar um middleware no Socket.IO
+io.use((socket, next) => {
+    // Adicionar função de criptografia ao socket
+    socket.encryptMessage = encryptMessage;
+    socket.decryptMessage = decryptMessage;
+    next();
+});
+
+// Nota: A lógica de criptografia será aplicada no frontend (private-chat.html)
+// O servidor apenas armazena as chaves e fornece a chave pública dos usuários
+
+// ===== MENSAGENS AUTODESTRUTIVAS =====
+// Adicionar campo expires_at na tabela
+try {
+    db.exec(`ALTER TABLE private_messages ADD COLUMN expires_at INTEGER`);
+} catch(e) { /* coluna já existe */ }
+
+// Modificar o handler de mensagens para suportar timer
+// O código já existe, apenas garantir que o timer seja salvo
+// A lógica de expiração será feita no frontend
+// E no backend, ao enviar, salvar o expires_at
+
+// Rota para remover mensagens expiradas (chamada pelo frontend)
+app.post('/api/messages/expire', requireAuth, (req, res) => {
+    const { messageIds } = req.body;
+    if (!messageIds || !Array.isArray(messageIds)) {
+        return res.status(400).json({ error: 'messageIds é obrigatório' });
+    }
+    
+    const userId = req.session.userId;
+    const placeholders = messageIds.map(() => '?').join(',');
+    
+    // Verificar se o usuário é o remetente ou destinatário
+    const stmt = db.prepare(`
+        DELETE FROM private_messages 
+        WHERE id IN (${placeholders}) 
+        AND (from_user_id = ? OR to_user_id = ?)
+    `);
+    
+    const params = [...messageIds, userId, userId];
+    const result = stmt.run(...params);
+    
+    // Notificar os usuários sobre a remoção
+    messageIds.forEach(id => {
+        io.emit('message expired', { messageId: id });
+    });
+    
+    res.json({ success: true, removed: result.changes });
+});
+
+// ===== ROTAS PARA SISTEMA DE CHAVES =====
+// Obter chave pública de um usuário (para criptografar mensagens)
+app.get('/api/user/:id/public-key', requireAuth, (req, res) => {
+    const userId = parseInt(req.params.id);
+    const user = db.prepare('SELECT public_key, onion_id FROM users WHERE id = ?').get(userId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json({ publicKey: user.public_key, onionId: user.onion_id });
+});
+
+// Obter meu próprio ID onion (para compartilhar)
+app.get('/api/my-onion-id', requireAuth, (req, res) => {
+    const user = db.prepare('SELECT onion_id FROM users WHERE id = ?').get(req.session.userId);
+    res.json({ onionId: user.onion_id });
+});
+
+// Buscar usuário por onion_id
+app.get('/api/user/by-onion/:onionId', requireAuth, (req, res) => {
+    const { onionId } = req.params;
+    const user = db.prepare('SELECT id, username, public_key FROM users WHERE onion_id = ?').get(onionId);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    res.json(user);
+});
+
+// Rotas para mensagens autodestrutivas
+app.post('/api/private-message-with-timer', requireAuth, (req, res) => {
+    const { toUserId, text, type, timer, replyToId, replyToText, replyToSender } = req.body;
+    if (!toUserId) return res.status(400).json({ error: 'toUserId obrigatório' });
+    
+    const fromUserId = req.session.userId;
+    const fromUser = db.prepare('SELECT username, avatar_url, public_key FROM users WHERE id = ?').get(fromUserId);
+    const toUser = db.prepare('SELECT public_key FROM users WHERE id = ?').get(toUserId);
+    
+    // Criptografar a mensagem com a chave pública do destinatário
+    let encryptedText = text;
+    if (toUser && toUser.public_key) {
+        encryptedText = crypto.AES.encrypt(text, toUser.public_key).toString();
+    }
+    
+    const expiresAt = timer && timer > 0 ? Date.now() + (timer * 1000) : null;
+    
+    const stmt = db.prepare(`
+        INSERT INTO private_messages 
+        (from_user_id, to_user_id, text, type, url, audio_url, name, size, 
+         reply_to_id, reply_to_text, reply_to_sender, timestamp, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    const info = stmt.run(
+        fromUserId, parseInt(toUserId), encryptedText, type || 'text',
+        null, null, null, null,
+        replyToId || null, replyToText || null, replyToSender || null,
+        new Date().toISOString(), expiresAt
+    );
+    
+    const newMsg = {
+        id: info.lastInsertRowid,
+        from_user_id: fromUserId,
+        to_user_id: parseInt(toUserId),
+        text: text, // texto original (só para o remetente)
+        type: type || 'text',
+        timestamp: new Date().toISOString(),
+        fromUsername: fromUser.username,
+        fromAvatar: fromUser.avatar_url,
+        edited: 0,
+        read: false,
+        expiresAt: expiresAt
+    };
+    
+    // Enviar via Socket.IO
+    io.to(`user_${toUserId}`).emit('private message', newMsg);
+    io.to(`user_${fromUserId}`).emit('private message', newMsg);
+    
+    res.json({ success: true, message: newMsg });
+});
+
+// Rota para limpar mensagens expiradas (executar periodicamente)
+app.post('/api/clean-expired-messages', requireAuth, (req, res) => {
+    const now = Date.now();
+    const deleted = db.prepare('DELETE FROM private_messages WHERE expires_at IS NOT NULL AND expires_at < ?').run(now);
+    res.json({ deleted: deleted.changes });
+});
+
+// Rota para atualizar o ID onion (se o usuário quiser mudar)
+app.post('/api/regenerate-onion-id', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    const newOnionId = crypto.lib.WordArray.random(16).toString();
+    db.prepare('UPDATE users SET onion_id = ? WHERE id = ?').run(newOnionId, userId);
+    res.json({ onionId: newOnionId });
+});
+
+// ===== SISTEMA DE CRIPTOGRAFIA =====
+
+// Gerar par de chaves (pública/privada)
+function generateKeyPair() {
+    // Gerar chave privada aleatória (256 bits)
+    const privateKey = CryptoJS.lib.WordArray.random(32).toString();
+    // Chave pública = SHA256 da privada (simplificado)
+    const publicKey = CryptoJS.SHA256(privateKey).toString();
+    return { publicKey, privateKey };
+}
+
+// Criptografar mensagem com chave pública do destinatário
+function encryptMessage(text, publicKey) {
+    try {
+        return CryptoJS.AES.encrypt(text, publicKey).toString();
+    } catch(e) {
+        console.error('Erro ao criptografar:', e);
+        return null;
+    }
+}
+
+// Descriptografar com chave privada
+function decryptMessage(encrypted, privateKey) {
+    try {
+        const bytes = CryptoJS.AES.decrypt(encrypted, privateKey);
+        return bytes.toString(CryptoJS.enc.Utf8);
+    } catch(e) {
+        console.error('Erro ao descriptografar:', e);
+        return null;
+    }
+}
+
+// Gerar ID Onion (anonimato)
+function generateOnionId() {
+    return CryptoJS.lib.WordArray.random(16).toString();
+}
+
+// Número de segurança (para verificação)
+function getSecurityNumber(publicKey) {
+    const hash = CryptoJS.SHA256(publicKey).toString().toUpperCase();
+    return hash.slice(0, 12);
+}
+
+// Verificar se mensagem expirou
+function isMessageExpired(expiresAt) {
+    if (!expiresAt || expiresAt === 0) return false;
+    return Date.now() > expiresAt;
+}

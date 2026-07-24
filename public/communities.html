@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comunidades - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-header: #f5ede2;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 600px; height: 100vh; background: var(--bg-container); display: flex; flex-direction: column; overflow: hidden; }
+        header { background: var(--bg-header); padding: 14px 16px; border-bottom: 2px solid var(--accent-gold); display: flex; align-items: center; justify-content: space-between; }
+        .logo { font-size: 20px; font-weight: 700; color: var(--accent-gold); }
+        .back-btn { background: rgba(212,175,55,0.15); border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
+        .content { flex: 1; padding: 16px; overflow-y: auto; }
+        .community-item { background: var(--bg-header); padding: 14px; border-radius: 12px; margin-bottom: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 12px; transition: all .2s; }
+        .community-item:active { transform: scale(0.98); }
+        .community-item:hover { border-color: var(--accent-gold); }
+        .community-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color); background: var(--bg-container); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+        .community-info { flex: 1; }
+        .community-name { font-weight: 600; color: var(--text-primary); font-size: 16px; }
+        .community-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        .community-info-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .btn-add { background: var(--accent-gold); color: #fff; border: none; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all .2s; }
+        .btn-add:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn-join { background: var(--accent-gold); color: #fff; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; margin-top: 6px; }
+        .btn-join:hover { background: var(--accent-orange); }
+        .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 10px; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: var(--bg-container); padding: 24px; border-radius: 16px; max-width: 400px; width: 90%; }
+        .modal-content h3 { margin-bottom: 12px; color: var(--text-primary); }
+        .modal-content input, .modal-content textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin: 8px 0; font-size: 14px; }
+        .modal-content textarea { min-height: 60px; resize: vertical; }
+        .modal-content .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; background: var(--accent-gold); color: #fff; font-weight: 700; cursor: pointer; margin-top: 8px; }
+        .modal-content .btn:hover { background: var(--accent-orange); }
+        .modal-content .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">🌐 Comunidades</div>
+        <a href="/contacts.html" class="back-btn">←</a>
+    </header>
+    <div class="content">
+        <button class="btn-add" onclick="showCreateCommunity()">+ Criar comunidade</button>
+        <div id="communitiesList" style="margin-top:12px;"></div>
+    </div>
+    
+    <div class="modal" id="createModal">
+        <div class="modal-content">
+            <h3>➕ Criar Comunidade</h3>
+            <input type="text" id="communityName" placeholder="Nome da comunidade">
+            <textarea id="communityDesc" placeholder="Descrição (opcional)"></textarea>
+            <button class="btn" onclick="createCommunity()">Criar</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadCommunities() {
+    try {
+        const res = await fetch('/api/communities/public');
+        const communities = await res.json();
+        const list = document.getElementById('communitiesList');
+        list.innerHTML = '';
+        
+        if (communities.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">🌐</div>
+                    <p>Nenhuma comunidade disponível</p>
+                    <p style="font-size:12px;margin-top:4px;">Crie uma comunidade para compartilhar com todos</p>
+                </div>
+            `;
+            return;
+        }
+        
+        communities.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'community-item';
+            const avatarUrl = c.avatar_url || '/uploads/community_avatars/default.svg';
+            div.innerHTML = `
+                <img class="community-avatar" src="${avatarUrl}" onerror="this.src='/uploads/community_avatars/default.svg'">
+                <div class="community-info">
+                    <div class="community-name">${c.name}</div>
+                    <div class="community-desc">${c.description || 'Sem descrição'}</div>
+                    <div class="community-info-text">${c.member_count || 0} membros</div>
+                    <button class="btn-join" onclick="joinCommunity('${c.id}', event)">Entrar</button>
+                </div>
+            `;
+            div.onclick = () => {
+                localStorage.setItem('communityId', c.id);
+                window.location.href = '/community-chat.html';
+            };
+            list.appendChild(div);
+        });
+    } catch(e) {
+        console.error('Erro ao carregar comunidades:', e);
+    }
+}
+
+async function joinCommunity(communityId, event) {
+    event.stopPropagation();
+    try {
+        const res = await fetch(`/api/communities/${communityId}/join`, { method: 'POST' });
+        if (res.ok) {
+            alert('✅ Você entrou na comunidade!');
+            loadCommunities();
+        } else {
+            alert('❌ Erro ao entrar na comunidade');
+        }
+    } catch(e) {
+        alert('Erro de conexão');
+    }
+}
+
+function showCreateCommunity() {
+    document.getElementById('createModal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('createModal').style.display = 'none';
+    document.getElementById('communityName').value = '';
+    document.getElementById('communityDesc').value = '';
+}
+
+async function createCommunity() {
+    const name = document.getElementById('communityName').value.trim();
+    const description = document.getElementById('communityDesc').value.trim();
+    if (!name) { alert('Digite um nome para a comunidade'); return; }
+    
+    try {
+        const res = await fetch('/api/communities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description })
+        });
+        if (res.ok) {
+            closeModal();
+            loadCommunities();
+        } else {
+            alert('Erro ao criar comunidade');
+        }
+    } catch(e) {
+        alert('Erro de conexão');
+    }
+}
+
+loadCommunities();
+
+document.getElementById('createModal').onclick = (e) => {
+    if (e.target === document.getElementById('createModal')) closeModal();
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gerenciar Arquivos - Papalegua</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:#0f0f1a;font-family:'Inter',sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px}
+        .container{width:100%;max-width:600px;background:linear-gradient(145deg,#1a1a2e,#16213e);border-radius:24px;border:1px solid rgba(108,99,255,0.15);padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.4)}
+        .header{display:flex;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid rgba(108,99,255,0.15)}
+        .back-btn{background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.2);color:#6C63FF;padding:8px 14px;border-radius:10px;cursor:pointer;font-size:18px;transition:all .3s}
+        .back-btn:hover{background:rgba(108,99,255,0.2)}
+        .header h1{font-size:20px;font-weight:700;color:#fff;flex:1}
+        .badge{background:rgba(108,99,255,0.15);color:#6C63FF;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
+        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+        .stat-card{background:#0f0f1a;border-radius:12px;padding:12px;text-align:center;border:1px solid #2a2a4a}
+        .stat-card .number{font-size:18px;font-weight:700;color:#fff}
+        .stat-card .label{font-size:10px;color:#555577;margin-top:2px}
+        .stat-card .number.primary{color:#6C63FF}
+        .stat-card .number.success{color:#00D4AA}
+        .stat-card .number.danger{color:#ff6b6b}
+        .stat-card .number.warning{color:#fbbf24}
+        .filter-buttons{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+        .filter-btn{background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;color:#8888aa;padding:6px 14px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;transition:all .3s;font-family:'Inter',sans-serif}
+        .filter-btn:hover{background:rgba(108,99,255,0.1);border-color:#6C63FF;color:#6C63FF}
+        .filter-btn.active{background:rgba(108,99,255,0.2);border-color:#6C63FF;color:#6C63FF}
+        .upload-area{background:#0f0f1a;border:2px dashed #2a2a4a;border-radius:16px;padding:16px;text-align:center;margin-bottom:16px;cursor:pointer;transition:all .3s}
+        .upload-area:hover{border-color:#6C63FF;background:#1a1a2e}
+        .upload-area .icon{font-size:28px;display:block;margin-bottom:4px}
+        .upload-area .title{color:#fff;font-weight:600;font-size:13px}
+        .upload-area .sub{color:#555577;font-size:11px;margin-top:2px}
+        .upload-area .progress{display:none;margin-top:6px}
+        .upload-area .progress-bar{width:100%;height:4px;background:#2a2a4a;border-radius:4px;overflow:hidden}
+        .upload-area .progress-fill{height:100%;background:linear-gradient(90deg,#6C63FF,#00D4AA);width:0%;transition:width .3s}
+        .upload-area .progress-text{font-size:11px;color:#555577;margin-top:4px}
+        .file-input{display:none}
+        .file-list{display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto}
+        .file-list::-webkit-scrollbar{width:4px}
+        .file-list::-webkit-scrollbar-track{background:transparent}
+        .file-list::-webkit-scrollbar-thumb{background:#6C63FF;border-radius:4px}
+        .file-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0f0f1a;border-radius:10px;border:1px solid #2a2a4a;transition:all .3s;animation:fadeIn .3s ease}
+        .file-item:hover{border-color:#6C63FF;background:#1a1a2e}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        .file-item .icon{font-size:24px;flex-shrink:0}
+        .file-item .info{flex:1;min-width:0}
+        .file-item .info .name{color:#fff;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .file-item .info .meta{color:#555577;font-size:11px;margin-top:2px}
+        .file-item .info .tag{display:inline-block;font-size:9px;font-weight:600;padding:1px 8px;border-radius:10px;margin-top:2px}
+        .file-item .info .tag.public{background:rgba(0,212,170,0.15);color:#00D4AA}
+        .file-item .info .tag.private{background:rgba(108,99,255,0.15);color:#6C63FF}
+        .file-item .actions{display:flex;gap:4px;flex-shrink:0}
+        .file-item .actions button{background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;color:#8888aa;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;transition:all .3s}
+        .file-item .actions button:hover{background:rgba(108,99,255,0.15);border-color:#6C63FF;color:#6C63FF}
+        .file-item .actions button.edit:hover{background:rgba(251,191,36,0.15);border-color:#fbbf24;color:#fbbf24}
+        .file-item .actions button.danger:hover{background:rgba(255,107,107,0.15);border-color:#ff6b6b;color:#ff6b6b}
+        .empty-state{text-align:center;padding:30px 20px;color:#555577}
+        .empty-state .icon{font-size:40px;margin-bottom:8px}
+        .empty-state .title{color:#fff;font-weight:600;font-size:15px}
+        .empty-state .sub{font-size:13px;margin-top:4px}
+        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:12px 24px;border-radius:12px;border-left:4px solid #6C63FF;font-size:14px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.4);opacity:0;transition:opacity .3s;pointer-events:none}
+        .toast.show{opacity:1}
+        .toast.error{border-color:#ff6b6b}
+        .toast.success{border-color:#00D4AA}
+        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;justify-content:center;align-items:center;opacity:0;pointer-events:none;transition:opacity .25s;padding:20px}
+        .modal-overlay.active{opacity:1;pointer-events:auto}
+        .modal-content{background:#1a1a2e;width:100%;max-width:400px;border-radius:16px;padding:24px;border:1px solid #2a2a4a;transform:scale(0.9);transition:transform .25s;position:relative}
+        .modal-overlay.active .modal-content{transform:scale(1)}
+        .modal-content h3{color:#fff;font-size:18px;font-weight:700;margin-bottom:12px}
+        .modal-content .input-group{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+        .modal-content .input-group label{font-size:11px;font-weight:600;color:#8888aa;text-transform:uppercase;letter-spacing:.5px}
+        .modal-content .input-group input{padding:10px 12px;border-radius:8px;border:2px solid #2a2a4a;background:#0f0f1a;color:#fff;font-size:14px;outline:none;transition:all .3s;font-family:'Inter',sans-serif}
+        .modal-content .input-group input:focus{border-color:#6C63FF}
+        .modal-actions{display:flex;gap:10px;margin-top:12px}
+        .modal-actions button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:600;font-size:14px;cursor:pointer;transition:all .3s;font-family:'Inter',sans-serif}
+        .modal-actions .btn-save{background:linear-gradient(135deg,#6C63FF,#4A90D9);color:#fff}
+        .modal-actions .btn-save:hover{transform:scale(1.02)}
+        .modal-actions .btn-cancel{background:rgba(255,255,255,0.05);color:#8888aa;border:1px solid #2a2a4a}
+        .modal-actions .btn-cancel:hover{background:rgba(255,255,255,0.1)}
+        .modal-close{position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.05);border:none;color:#8888aa;font-size:18px;cursor:pointer;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .3s}
+        .modal-close:hover{background:rgba(255,255,255,0.1);color:#fff}
+        .access-denied{text-align:center;padding:60px 20px}
+        .access-denied .icon{font-size:64px;margin-bottom:16px}
+        .access-denied h2{color:#fff;font-size:24px;font-weight:700;margin-bottom:8px}
+        .access-denied p{color:#8888aa;font-size:15px}
+        .access-denied .btn{display:inline-block;margin-top:16px;padding:12px 32px;background:linear-gradient(135deg,#6C63FF,#4A90D9);color:#fff;border-radius:12px;text-decoration:none;font-weight:600;transition:all .3s}
+        .access-denied .btn:hover{transform:scale(1.05)}
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <div class="header">
+        <button class="back-btn" onclick="window.location.href='/contacts.html'">←</button>
+        <h1>📁 Gerenciar Arquivos</h1>
+        <span class="badge">🔒 Admin</span>
+    </div>
+
+    <div class="stats">
+        <div class="stat-card">
+            <div class="number primary" id="totalFiles">0</div>
+            <div class="label">Arquivos</div>
+        </div>
+        <div class="stat-card">
+            <div class="number success" id="totalSize">0 MB</div>
+            <div class="label">Espaço</div>
+        </div>
+        <div class="stat-card">
+            <div class="number warning" id="totalTypes">0</div>
+            <div class="label">Tipos</div>
+        </div>
+        <div class="stat-card">
+            <div class="number danger" id="totalFolders">0</div>
+            <div class="label">Pastas</div>
+        </div>
+    </div>
+
+    <div class="filter-buttons">
+        <button class="filter-btn active" data-filter="all">📂 Todos</button>
+        <button class="filter-btn" data-filter="public">🌐 Públicos</button>
+        <button class="filter-btn" data-filter="private">🔒 Privados</button>
+    </div>
+
+    <div class="upload-area" id="uploadArea">
+        <span class="icon">📤</span>
+        <div class="title">Clique para enviar arquivos (públicos)</div>
+        <div class="sub">Suporta imagens, vídeos, áudios e documentos</div>
+        <input type="file" id="fileInput" class="file-input" multiple>
+        <div class="progress" id="uploadProgress">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText">Enviando...</div>
+        </div>
+    </div>
+
+    <div class="file-list" id="fileList">
+        <div class="empty-state">
+            <div class="icon">📂</div>
+            <div class="title">Nenhum arquivo ainda</div>
+            <div class="sub">Envie arquivos para gerenciar</div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal-content">
+        <button class="modal-close" id="closeEditModal">✕</button>
+        <h3>✏️ Editar Arquivo</h3>
+        <div class="input-group">
+            <label>Novo nome</label>
+            <input type="text" id="editFileName" placeholder="novo_nome.ext">
+        </div>
+        <div class="modal-actions">
+            <button class="btn-cancel" id="cancelEdit">Cancelar</button>
+            <button class="btn-save" id="saveEdit">💾 Salvar</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let files = [];
+let isUploading = false;
+let currentEditFile = null;
+let currentEditType = null;
+let isAdmin = false;
+let currentFilter = 'all';
+
+function showToast(msg, type = '') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + type;
+    setTimeout(() => t.className = 'toast', 4000);
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'webp': '🖼️', 'svg': '🖼️',
+        'mp4': '🎬', 'mov': '🎬', 'avi': '🎬', 'mkv': '🎬', '3gp': '🎬',
+        'mp3': '🎵', 'wav': '🎵', 'ogg': '🎵', 'webm': '🎵', 'm4a': '🎵',
+        'pdf': '📄', 'doc': '📄', 'docx': '📄', 'xls': '📄', 'xlsx': '📄', 'ppt': '📄', 'pptx': '📄',
+        'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
+        'apk': '📱',
+        'txt': '📝', 'md': '📝', 'json': '📋', 'xml': '📋', 'html': '🌐', 'css': '🎨', 'js': '⚡'
+    };
+    return icons[ext] || '📎';
+}
+
+function updateStats() {
+    document.getElementById('totalFiles').textContent = files.length;
+    const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+    document.getElementById('totalSize').textContent = formatSize(totalSize);
+    const types = new Set(files.map(f => f.name.split('.').pop().toLowerCase()));
+    document.getElementById('totalTypes').textContent = types.size;
+    const folders = new Set(files.map(f => f.path ? f.path.split('/')[0] : 'raiz'));
+    document.getElementById('totalFolders').textContent = folders.size;
+}
+
+function renderFiles() {
+    const container = document.getElementById('fileList');
+    const filtered = currentFilter === 'all' ? files : files.filter(f => f.type === currentFilter);
+    
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="icon">📂</div>
+                <div class="title">${files.length === 0 ? 'Nenhum arquivo ainda' : 'Nenhum arquivo neste filtro'}</div>
+                <div class="sub">${files.length === 0 ? 'Envie arquivos para gerenciar' : 'Tente outro filtro'}</div>
+            </div>
+        `;
+        updateStats();
+        return;
+    }
+
+    container.innerHTML = '';
+    filtered.slice().reverse().forEach((file) => {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        const icon = getFileIcon(file.name);
+        const size = formatSize(file.size || 0);
+        const date = file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString('pt-BR') : 'Hoje';
+        const tagClass = file.type === 'private' ? 'private' : 'public';
+        const tagLabel = file.type === 'private' ? '🔒 Privado' : '🌐 Público';
+        const pathDisplay = file.path || 'raiz';
+        div.innerHTML = `
+            <span class="icon">${icon}</span>
+            <div class="info">
+                <div class="name">${escapeHtml(file.name)}</div>
+                <div class="meta">${size} • ${date} • ${pathDisplay}</div>
+                <span class="tag ${tagClass}">${tagLabel}</span>
+            </div>
+            <div class="actions">
+                <button onclick="downloadFile('${file.name}')" title="Baixar">⬇️</button>
+                <button class="edit" onclick="openEditModal('${file.name}')" title="Renomear">✏️</button>
+                <button class="danger" onclick="deleteFile('${file.name}')" title="Excluir">🗑️</button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+    updateStats();
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function downloadFile(filename) {
+    // Tentar baixar da pasta correta
+    const file = files.find(f => f.name === filename);
+    const baseUrl = file?.type === 'private' ? '/private-download/' : '/uploads/';
+    window.open(baseUrl + filename, '_blank');
+}
+
+function deleteFile(filename) {
+    if (!confirm('🗑️ Excluir "' + filename + '" permanentemente?')) return;
+    const file = files.find(f => f.name === filename);
+    fetch('/api/file/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, type: file?.type || 'public' })
+    }).then(res => res.json()).then(data => {
+        if (data.success) {
+            files = files.filter(f => f.name !== filename);
+            renderFiles();
+            showToast('✅ Arquivo excluído!', 'success');
+        } else {
+            showToast('❌ ' + (data.error || 'Erro ao excluir'), 'error');
+        }
+    }).catch(() => showToast('❌ Erro de conexão', 'error'));
+}
+
+function openEditModal(filename) {
+    currentEditFile = filename;
+    const file = files.find(f => f.name === filename);
+    currentEditType = file?.type || 'public';
+    document.getElementById('editFileName').value = filename;
+    document.getElementById('editModal').classList.add('active');
+}
+
+document.getElementById('closeEditModal').onclick = () => document.getElementById('editModal').classList.remove('active');
+document.getElementById('cancelEdit').onclick = () => document.getElementById('editModal').classList.remove('active');
+
+document.getElementById('saveEdit').onclick = function() {
+    const newName = document.getElementById('editFileName').value.trim();
+    if (!newName) { showToast('Digite um nome válido', 'error'); return; }
+    if (newName === currentEditFile) { showToast('Nome igual ao original', 'error'); return; }
+    
+    fetch('/api/file/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldName: currentEditFile, newName, type: currentEditType })
+    }).then(res => res.json()).then(data => {
+        if (data.success) {
+            const idx = files.findIndex(f => f.name === currentEditFile);
+            if (idx !== -1) {
+                files[idx].name = newName;
+                renderFiles();
+                showToast('✅ Arquivo renomeado!', 'success');
+            }
+            document.getElementById('editModal').classList.remove('active');
+        } else {
+            showToast('❌ ' + (data.error || 'Erro ao renomear'), 'error');
+        }
+    }).catch(() => showToast('❌ Erro de conexão', 'error'));
+};
+
+// Upload
+document.getElementById('uploadArea').onclick = () => document.getElementById('fileInput').click();
+
+document.getElementById('fileInput').onchange = async function(e) {
+    const fileList = this.files;
+    if (!fileList.length || isUploading) return;
+
+    isUploading = true;
+    const progress = document.getElementById('uploadProgress');
+    const fill = document.getElementById('progressFill');
+    const text = document.getElementById('progressText');
+    progress.style.display = 'block';
+
+    let uploaded = 0;
+    for (const file of fileList) {
+        const CHUNK = 256 * 1024;
+        const totalChunks = Math.ceil(file.size / CHUNK);
+        const fileId = Date.now() + '-' + Math.random().toString(36).slice(2);
+
+        for (let i = 0; i < totalChunks; i++) {
+            const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
+            const base64 = await new Promise((res, rej) => {
+                const fr = new FileReader();
+                fr.onload = ev => res(ev.target.result.split(',')[1]);
+                fr.onerror = rej;
+                fr.readAsDataURL(slice);
+            });
+            const resp = await fetch('/upload-chunk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fileId, chunkIndex: i, totalChunks,
+                    fileName: file.name, fileSize: file.size,
+                    chunk: base64, isPrivate: false
+                })
+            });
+            const data = await resp.json();
+            const pct = Math.round(((i + 1) / totalChunks) * 100);
+            fill.style.width = pct + '%';
+            text.textContent = `Enviando ${file.name}... ${pct}%`;
+            if (data.done) {
+                files.push({
+                    name: file.name,
+                    size: file.size,
+                    uploadedAt: new Date().toISOString(),
+                    path: 'uploads/ (público)',
+                    type: 'public'
+                });
+                uploaded++;
+                renderFiles();
+                showToast(`✅ ${file.name} enviado!`, 'success');
+            }
+        }
+    }
+
+    progress.style.display = 'none';
+    fill.style.width = '0%';
+    text.textContent = '';
+    isUploading = false;
+    this.value = '';
+};
+
+// Filtros
+document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.onclick = function() {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        currentFilter = this.dataset.filter;
+        renderFiles();
+    };
+});
+
+// Verificar se é admin
+async function checkAdmin() {
+    try {
+        const res = await fetch('/api/me');
+        if (!res.ok) { window.location.href = '/login.html'; return; }
+        const user = await res.json();
+        isAdmin = user.id === 1;
+        if (!isAdmin) {
+            document.getElementById('app').innerHTML = `
+                <div class="access-denied">
+                    <div class="icon">🚫</div>
+                    <h2>Acesso Negado</h2>
+                    <p>Esta página é restrita ao administrador.</p>
+                    <a href="/contacts.html" class="btn">← Voltar</a>
+                </div>
+            `;
+            return;
+        }
+        loadFiles();
+    } catch(e) {
+        window.location.href = '/login.html';
+    }
+}
+
+// Carregar arquivos existentes
+async function loadFiles() {
+    try {
+        const res = await fetch('/api/files');
+        if (res.ok) {
+            const data = await res.json();
+            files = data.files || [];
+            renderFiles();
+        } else {
+            const error = await res.json();
+            showToast('❌ ' + (error.error || 'Erro ao carregar arquivos'), 'error');
+        }
+    } catch(e) {
+        console.error('Erro ao carregar arquivos:', e);
+        showToast('❌ Erro de conexão ao carregar arquivos', 'error');
+    }
+}
+
+// Iniciar
+checkAdmin();
+</script>
+</body>
+</html>

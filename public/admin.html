@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Admin - Papalegua</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:#0f0f1a;font-family:'Inter',sans-serif;padding:20px;color:#f1f5f9}
+        .container{max-width:600px;margin:0 auto}
+        
+        .card{background:linear-gradient(145deg,#1a1a2e,#16213e);border-radius:16px;border:1px solid rgba(108,99,255,0.15);padding:24px;margin-bottom:16px;box-shadow:0 8px 32px rgba(0,0,0,0.3)}
+        .card h2{font-size:18px;color:#6C63FF;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+        .card .sub{font-size:13px;color:#8888aa;margin-bottom:16px}
+        
+        .form-group{margin-bottom:14px}
+        .form-group label{display:block;font-size:11px;font-weight:600;color:#8888aa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+        .form-group input,.form-group textarea{width:100%;padding:10px 12px;border-radius:8px;border:2px solid #2a2a4a;background:#0f0f1a;color:#f1f5f9;font-size:14px;outline:none;transition:all .3s;font-family:'Inter',sans-serif}
+        .form-group input:focus,.form-group textarea:focus{border-color:#6C63FF;box-shadow:0 0 0 4px rgba(108,99,255,0.1)}
+        .form-group textarea{resize:vertical;min-height:80px}
+        .form-group .info-text{font-size:11px;color:#555577;margin-top:4px}
+        
+        .btn{width:100%;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:15px;cursor:pointer;transition:all .3s;font-family:'Inter',sans-serif}
+        .btn-primary{background:linear-gradient(135deg,#6C63FF,#4A90D9);color:#fff}
+        .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(108,99,255,0.3)}
+        .btn-danger{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.2)}
+        .btn-danger:hover{background:rgba(255,107,107,0.15)}
+        .btn-success{background:rgba(0,212,170,0.1);color:#00D4AA;border:1px solid rgba(0,212,170,0.2)}
+        .btn-success:hover{background:rgba(0,212,170,0.15)}
+        
+        .version-display{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2a2a4a}
+        .version-display:last-child{border-bottom:none}
+        .version-display .label{color:#8888aa}
+        .version-display .value{color:#f1f5f9;font-weight:600}
+        
+        .file-drop{width:100%;padding:24px;border:2px dashed #2a2a4a;border-radius:12px;text-align:center;cursor:pointer;transition:all .3s}
+        .file-drop:hover{border-color:#6C63FF;background:#1a1a2e}
+        .file-drop .icon{font-size:40px;margin-bottom:8px;display:block}
+        .file-drop .text{color:#8888aa;font-size:13px}
+        .file-drop .text strong{color:#f1f5f9}
+        
+        .progress-bar{width:100%;height:4px;background:#2a2a4a;border-radius:4px;overflow:hidden;margin-top:8px;display:none}
+        .progress-bar .fill{height:100%;background:linear-gradient(90deg,#6C63FF,#00D4AA);width:0%;transition:width .3s}
+        
+        .toggle-group{display:flex;align-items:center;gap:12px;padding:4px 0}
+        .toggle{position:relative;width:44px;height:24px;background:#2a2a4a;border-radius:12px;cursor:pointer;transition:background .3s}
+        .toggle.active{background:#6C63FF}
+        .toggle .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .3s;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+        .toggle.active .knob{transform:translateX(20px)}
+        
+        .back-btn{background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.2);color:#6C63FF;padding:8px 16px;border-radius:10px;cursor:pointer;font-size:14px;margin-bottom:16px;transition:all .3s;font-family:'Inter',sans-serif}
+        .back-btn:hover{background:rgba(108,99,255,0.2)}
+        
+        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:12px 24px;border-radius:12px;border-left:4px solid #6C63FF;font-size:14px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.4);opacity:0;transition:opacity .3s;pointer-events:none}
+        .toast.show{opacity:1}
+        .toast.error{border-color:#ff6b6b}
+        .toast.success{border-color:#00D4AA}
+        
+        .upload-status{font-size:12px;color:#8888aa;text-align:center;padding:4px 0;display:none}
+        
+        .login-required{text-align:center;padding:40px 20px}
+        .login-required .icon{font-size:48px;margin-bottom:16px}
+        .login-required h2{color:#fff;font-size:20px;font-weight:700}
+        .login-required p{color:#8888aa;font-size:14px;margin-top:8px}
+        .login-required .btn{display:inline-block;width:auto;padding:12px 32px;margin-top:16px}
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <button class="back-btn" onclick="window.location.href='/contacts.html'">← Voltar</button>
+    
+    <!-- Conteúdo só aparece se for admin -->
+    <div id="adminContent">
+        <div class="card">
+            <h2>📱 Versão Atual</h2>
+            <div id="versionInfo">
+                <div class="version-display"><span class="label">Versão</span><span class="value" id="currentVersion">-</span></div>
+                <div class="version-display"><span class="label">Código</span><span class="value" id="currentVersionCode">-</span></div>
+                <div class="version-display"><span class="label">APK</span><span class="value" id="currentApk">-</span></div>
+                <div class="version-display"><span class="label">Atualização forçada</span><span class="value" id="currentForced">-</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📤 Upload do APK</h2>
+            <div class="sub">Envie um novo APK para distribuir atualizações</div>
+            
+            <div class="file-drop" id="fileDrop">
+                <span class="icon">📦</span>
+                <div class="text"><strong>Clique aqui</strong> ou arraste o arquivo APK</div>
+                <div style="font-size:11px;color:#555577;margin-top:4px">Máximo 100MB</div>
+            </div>
+            <input type="file" id="fileInput" accept=".apk" style="display:none">
+            <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+            <div class="upload-status" id="uploadStatus"></div>
+        </div>
+
+        <div class="card">
+            <h2>⚙️ Configurar Versão</h2>
+            <div class="sub">Defina as informações da nova versão</div>
+            
+            <div class="form-group">
+                <label>Versão (ex: 1.1.0)</label>
+                <input type="text" id="versionInput" placeholder="1.1.0">
+            </div>
+            
+            <div class="form-group">
+                <label>Código da Versão (número inteiro, maior que o anterior)</label>
+                <input type="number" id="versionCodeInput" placeholder="2">
+            </div>
+            
+            <div class="form-group">
+                <label>Notas da Atualização</label>
+                <textarea id="releaseNotesInput" placeholder="- Correção de bugs&#10;- Nova funcionalidade X"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>Atualização Forçada</label>
+                <div class="toggle-group">
+                    <div class="toggle" id="forcedToggle"><div class="knob"></div></div>
+                    <label id="forcedLabel" style="color:#8888aa;font-size:14px;cursor:pointer">Desativado</label>
+                </div>
+                <div class="info-text">Se ativado, o usuário será obrigado a atualizar para continuar usando o app</div>
+            </div>
+            
+            <button class="btn btn-primary" id="saveVersionBtn">📢 Publicar Versão</button>
+        </div>
+
+        <div class="card">
+            <h2>🔗 Links úteis</h2>
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <a href="/api/version" target="_blank" style="color:#6C63FF;text-decoration:none">📊 Verificar versão (API)</a>
+                <a href="/apk/" target="_blank" style="color:#6C63FF;text-decoration:none">📁 Listar APKs</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================
+// VERIFICAR SE É ADMIN
+// ============================================
+async function checkAdmin() {
+    try {
+        // Primeiro verificar se está logado
+        const meRes = await fetch('/api/me');
+        if (!meRes.ok) {
+            window.location.href = '/login.html';
+            return;
+        }
+        
+        const me = await meRes.json();
+        
+        // Verificar se é admin (ID 1)
+        if (me.id !== 1) {
+            document.getElementById('adminContent').innerHTML = `
+                <div class="login-required">
+                    <div class="icon">🚫</div>
+                    <h2>Acesso Restrito</h2>
+                    <p>Esta página é apenas para administradores.</p>
+                    <a href="/contacts.html" class="btn btn-primary">← Voltar</a>
+                </div>
+            `;
+            return;
+        }
+        
+        // Carregar dados
+        loadVersion();
+    } catch(e) {
+        console.error('Erro ao verificar admin:', e);
+        window.location.href = '/login.html';
+    }
+}
+
+function showToast(msg, type) {
+    type = type || '';
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + type;
+    setTimeout(function() { t.className = 'toast'; }, 4000);
+}
+
+async function loadVersion() {
+    try {
+        var res = await fetch('/api/admin/version', {
+            credentials: 'same-origin' // Envia cookies
+        });
+        
+        if (!res.ok) {
+            if (res.status === 403) {
+                showToast('❌ Você não é administrador', 'error');
+                return;
+            }
+            throw new Error('Erro ' + res.status);
+        }
+        
+        var data = await res.json();
+        
+        document.getElementById('currentVersion').textContent = data.version || '-';
+        document.getElementById('currentVersionCode').textContent = data.versionCode || '-';
+        document.getElementById('currentApk').textContent = data.apkUrl ? '✅ Disponível' : '❌ Nenhum';
+        document.getElementById('currentForced').textContent = data.forced ? '✅ Sim' : '❌ Não';
+        
+        document.getElementById('versionInput').value = data.version || '';
+        document.getElementById('versionCodeInput').value = data.versionCode || '';
+        document.getElementById('releaseNotesInput').value = data.releaseNotes || '';
+        
+        var toggle = document.getElementById('forcedToggle');
+        var label = document.getElementById('forcedLabel');
+        if (data.forced) {
+            toggle.classList.add('active');
+            label.textContent = 'Ativado';
+        } else {
+            toggle.classList.remove('active');
+            label.textContent = 'Desativado';
+        }
+    } catch(e) {
+        showToast('❌ Erro ao carregar versão: ' + e.message, 'error');
+    }
+}
+
+// Toggle
+document.getElementById('forcedToggle').onclick = function() {
+    this.classList.toggle('active');
+    var label = document.getElementById('forcedLabel');
+    label.textContent = this.classList.contains('active') ? 'Ativado' : 'Desativado';
+};
+
+// Upload
+var fileDrop = document.getElementById('fileDrop');
+var fileInput = document.getElementById('fileInput');
+
+fileDrop.onclick = function() { fileInput.click(); };
+
+fileDrop.ondragover = function(e) {
+    e.preventDefault();
+    fileDrop.style.borderColor = '#6C63FF';
+};
+
+fileDrop.ondragleave = function() {
+    fileDrop.style.borderColor = '#2a2a4a';
+};
+
+fileDrop.ondrop = function(e) {
+    e.preventDefault();
+    fileDrop.style.borderColor = '#2a2a4a';
+    if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        uploadFile();
+    }
+};
+
+fileInput.onchange = function() {
+    uploadFile();
+};
+
+async function uploadFile() {
+    var file = fileInput.files[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith('.apk')) {
+        showToast('❌ Apenas arquivos .apk são permitidos', 'error');
+        return;
+    }
+    
+    var formData = new FormData();
+    formData.append('apk', file);
+    
+    var progress = document.getElementById('progressBar');
+    var fill = document.getElementById('progressFill');
+    var status = document.getElementById('uploadStatus');
+    
+    progress.style.display = 'block';
+    status.style.display = 'block';
+    status.textContent = '⏳ Enviando...';
+    
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/admin/upload-apk');
+        xhr.withCredentials = true;
+        
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                var pct = Math.round((e.loaded / e.total) * 100);
+                fill.style.width = pct + '%';
+                status.textContent = '⏳ Enviando... ' + pct + '%';
+            }
+        };
+        
+        xhr.onload = function() {
+            progress.style.display = 'none';
+            status.style.display = 'none';
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (xhr.status === 200) {
+                    showToast('✅ APK enviado com sucesso!', 'success');
+                    loadVersion();
+                } else {
+                    showToast('❌ ' + (data.error || 'Erro no upload'), 'error');
+                }
+            } catch(e) {
+                showToast('❌ Erro ao processar resposta', 'error');
+            }
+            fill.style.width = '0%';
+        };
+        
+        xhr.onerror = function() {
+            progress.style.display = 'none';
+            status.style.display = 'none';
+            showToast('❌ Erro de conexão no upload', 'error');
+            fill.style.width = '0%';
+        };
+        
+        xhr.send(formData);
+    } catch(e) {
+        progress.style.display = 'none';
+        status.style.display = 'none';
+        showToast('❌ Erro: ' + e.message, 'error');
+        fill.style.width = '0%';
+    }
+}
+
+// Salvar versão
+document.getElementById('saveVersionBtn').onclick = async function() {
+    var version = document.getElementById('versionInput').value.trim();
+    var versionCode = document.getElementById('versionCodeInput').value.trim();
+    var releaseNotes = document.getElementById('releaseNotesInput').value.trim();
+    var forced = document.getElementById('forcedToggle').classList.contains('active');
+    
+    if (!version) { showToast('❌ Digite a versão', 'error'); return; }
+    if (!versionCode || isNaN(versionCode)) { showToast('❌ Digite um código de versão válido', 'error'); return; }
+    
+    try {
+        var res = await fetch('/api/admin/version', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ version, versionCode: parseInt(versionCode), releaseNotes, forced })
+        });
+        var data = await res.json();
+        if (res.ok) {
+            showToast('✅ Versão publicada com sucesso!', 'success');
+            loadVersion();
+        } else {
+            showToast('❌ ' + (data.error || 'Erro ao publicar'), 'error');
+        }
+    } catch(e) {
+        showToast('❌ Erro de conexão: ' + e.message, 'error');
+    }
+};
+
+// Iniciar
+checkAdmin();
+</script>
+</body>
+</html>

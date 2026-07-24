@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfil - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 600px; min-height: 100vh; background: var(--bg-container); padding: 20px; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+        .header .back-btn { background: rgba(212,175,55,0.12); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 8px 16px; border-radius: 10px; cursor: pointer; font-size: 16px; text-decoration: none; display: inline-block; }
+        .header .back-btn:hover { background: var(--bg-header); }
+        .header .title { font-size: 20px; font-weight: 700; color: var(--accent-gold); }
+        .avatar-section { text-align: center; margin-bottom: 24px; }
+        .avatar-preview { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid var(--accent-gold); background: var(--bg-header); }
+        .avatar-btn { background: rgba(212,175,55,0.12); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 6px 14px; border-radius: 10px; cursor: pointer; margin-top: 8px; }
+        .avatar-btn:hover { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        .input-group { margin-bottom: 14px; }
+        .input-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+        .input-group input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-input); font-size: 14px; outline: none; }
+        .input-group input:focus { border-color: var(--accent-gold); }
+        .btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--accent-gold); color: #fff; font-weight: 700; cursor: pointer; transition: all .2s; margin-top: 4px; font-size: 16px; }
+        .btn:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-header); transform: none; }
+        .btn-danger { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.2); }
+        .btn-danger:hover { background: rgba(239,68,68,0.2); }
+        .file-input { display: none; }
+        .id-box { background: var(--bg-input); padding: 10px; border-radius: 8px; border: 1px dashed var(--border-color); font-size: 12px; word-break: break-all; margin-bottom: 12px; }
+        .message { text-align: center; font-size: 13px; margin: 8px 0; min-height: 18px; }
+        .message.success { color: #22c55e; }
+        .message.error { color: #ef4444; }
+        .section-divider { border: none; border-top: 2px solid var(--border-color); margin: 20px 0; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-group .btn { flex: 1; min-width: 120px; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: var(--bg-container); padding: 24px; border-radius: 16px; max-width: 450px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-content h3 { margin-bottom: 12px; color: var(--text-primary); }
+        .modal-content input, .modal-content textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin: 8px 0; font-size: 14px; }
+        .modal-content textarea { min-height: 60px; resize: vertical; font-family: monospace; }
+        .modal-content .btn { margin-top: 8px; }
+        .modal-content .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .username-display { font-weight: 600; color: var(--accent-gold); }
+        .seed-box { background: var(--bg-input); border: 2px dashed var(--accent-gold); border-radius: 12px; padding: 12px; margin: 8px 0; }
+        .seed-box .words { font-size: 14px; font-family: monospace; color: var(--text-primary); word-wrap: break-word; line-height: 1.8; }
+        .seed-box .label { font-size: 12px; color: var(--text-secondary); }
+        .seed-box .warning { font-size: 11px; color: #ef4444; }
+        .security-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+        .security-badge.secure { background: #22c55e; color: #fff; }
+        .preview-avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid var(--accent-gold); margin: 0 auto; display: block; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <button class="back-btn" id="backBtn">← Voltar</button>
+        <span class="title">Meu Perfil</span>
+    </div>
+
+    <div class="avatar-section">
+        <img id="avatarPreview" class="preview-avatar" src="/uploads/avatars/default.svg" onerror="this.src='/uploads/avatars/default.svg'">
+        <div><button class="avatar-btn" onclick="document.getElementById('avatarInput').click()">📷 Alterar avatar</button></div>
+        <input type="file" id="avatarInput" class="file-input" accept="image/*" onchange="previewAvatar(event)">
+    </div>
+
+    <div class="id-box">
+        <strong>Seu ID:</strong> <span id="userIdDisplay"></span><br>
+        <strong>Usuário:</strong> <span class="username-display" id="usernameDisplay">carregando...</span>
+        <span id="securityBadge" class="security-badge secure">🔒 Protegido</span>
+    </div>
+
+    <div class="seed-box">
+        <div class="label">🔐 Sua Frase Secreta (12 palavras)</div>
+        <div class="words" id="seedDisplay">Clique em "Mostrar" para ver</div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn-secondary" onclick="toggleSeed()" style="flex:1;padding:6px;font-size:12px;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;">👁️ Mostrar</button>
+            <button class="btn-secondary" onclick="copySeed()" style="flex:1;padding:6px;font-size:12px;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;">📋 Copiar</button>
+        </div>
+        <div class="warning">⚠️ Nunca compartilhe sua frase secreta com ninguém!</div>
+    </div>
+
+    <div class="input-group">
+        <label>Apelido</label>
+        <input type="text" id="usernameInput" placeholder="Nome público">
+    </div>
+    <button class="btn" id="saveBtn">💾 Salvar</button>
+    <div class="message" id="msg"></div>
+
+    <hr class="section-divider">
+
+    <h3 style="color: var(--text-secondary); font-size: 14px; margin-bottom: 12px;">🔐 Gerenciar Chaves</h3>
+    <div class="btn-group">
+        <button class="btn btn-secondary" onclick="exportKeys()">📤 Exportar chave</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('importInput').click()">📥 Importar chave</button>
+        <input type="file" id="importInput" class="file-input" accept=".json" onchange="importKeys(event)">
+    </div>
+    <div class="message" id="keyMsg"></div>
+
+    <hr class="section-divider">
+
+<hr class="section-divider">
+    <h3 style="color: var(--text-secondary); font-size: 14px; margin-bottom: 12px;">🔒 Recuperação de Conta</h3>
+    <div class="btn-group">
+        <button class="btn btn-secondary" onclick="openRecoveryModal()">🔒 Gerar QR de recuperação</button>
+    </div>
+    <div class="message" id="recoveryMsg"></div>
+    <button class="btn btn-danger" id="deleteBtn">🗑️ Excluir conta</button>
+</div>
+
+<!-- MODAL EXPORT -->
+<div class="modal" id="exportModal">
+    <div class="modal-content">
+        <h3>🔐 Proteger seu arquivo</h3>
+        <p style="font-size: 13px; color: var(--text-secondary);">
+            O arquivo .json vai conter suas chaves criptografadas.
+            <strong>Use sua frase secreta como senha</strong> para proteger o arquivo.
+        </p>
+        <div style="background: #fefcf8; border: 1px solid #e6d5c0; border-radius: 8px; padding: 12px; margin: 8px 0;">
+            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Sua frase secreta:</div>
+            <div style="font-size: 13px; font-family: monospace; word-wrap: break-word; color: var(--text-primary);" id="exportSeedDisplay">carregando...</div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-secondary);">
+            ⚠️ O arquivo só pode ser aberto com esta frase secreta!
+        </div>
+        <button class="btn" onclick="confirmExport()">📤 Exportar com frase secreta</button>
+        <button class="btn btn-secondary" onclick="closeModal('exportModal')">Cancelar</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<div class="modal" id="recoveryModal">
+    <div class="modal-content" id="recoveryModalContent">
+        <h3>🔒 QR de Recuperação de Conta</h3>
+        <p style="font-size: 13px; color: var(--text-secondary);">
+            Este código permite recuperar sua conta em um novo dispositivo.
+            <strong>Imprima e guarde em local seguro</strong> (carteira, cofre).
+            Ele substitui qualquer QR gerado anteriormente.
+        </p>
+        <div id="recoveryQrBox" style="background:#fff; padding:16px; border-radius:12px; display:flex; justify-content:center; align-items:center; min-height:250px;">
+            <span style="color:#999; font-size:13px;">Gerando...</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+            ⚠️  Qualquer pessoa com este QR pode acessar sua conta. Guarde com segurança.
+        </div>
+        <button class="btn" id="printRecoveryBtn" onclick="printRecoveryQr()" style="display:none;">🖨️ Imprimir</button>
+        <button class="btn btn-secondary" onclick="closeModal('recoveryModal')">Fechar</button>
+    </div>
+</div>
+<script>
+
+// ===============================================
+// QR DE RECUPERAÇÃO DE CONTA
+// ===============================================
+let recoveryQrInstance = null;
+
+async function openRecoveryModal() {
+    document.getElementById('recoveryModal').style.display = 'flex';
+    const box = document.getElementById('recoveryQrBox');
+    const printBtn = document.getElementById('printRecoveryBtn');
+    box.innerHTML = '<span style="color:#999; font-size:13px;">Gerando...</span>';
+    printBtn.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/account/recovery/generate', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+            box.innerHTML = '<span style="color:#c0392b; font-size:13px;">Erro: ' + (data.error || 'falha ao gerar') + '</span>';
+            return;
+        }
+        box.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = data.qr;
+        img.style.maxWidth = '220px';
+        img.style.width = '100%';
+        box.appendChild(img);
+        printBtn.style.display = 'inline-block';
+    } catch (err) {
+        console.error('Erro ao gerar QR de recuperação:', err);
+        box.innerHTML = '<span style="color:#c0392b; font-size:13px;">Erro ao gerar QR</span>';
+    }
+}
+
+function printRecoveryQr() {
+    const content = document.getElementById('recoveryModalContent').innerHTML;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html><head><title>QR de Recuperação - Papalegua</title>
+        <style>
+            body { font-family: sans-serif; text-align: center; padding: 40px; }
+            img { max-width: 250px; }
+            button { display: none; }
+        </style>
+        </head><body>${content}</body></html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => { printWindow.print(); }, 300);
+}
+let currentUser = {};
+let seedVisible = false;
+let seedPhrase = localStorage.getItem('seedPhrase') || '';
+
+document.getElementById('backBtn').addEventListener('click', function() {
+    window.location.href = '/contacts.html';
+});
+
+async function loadProfile() {
+    try {
+        const res = await fetch('/api/me');
+        if (!res.ok) throw new Error('Não autenticado');
+        currentUser = await res.json();
+        document.getElementById('usernameInput').value = currentUser.username || '';
+        document.getElementById('usernameDisplay').textContent = currentUser.username || 'Anônimo';
+        
+        // Carrega o avatar
+        const avatarUrl = currentUser.avatar_url || '/uploads/avatars/default.svg';
+        document.getElementById('avatarPreview').src = avatarUrl;
+        document.getElementById('avatarPreview').onerror = function() { this.src = '/uploads/avatars/default.svg'; };
+        
+        document.getElementById('userIdDisplay').textContent = localStorage.getItem('userId') || '--';
+        
+        if (seedPhrase) {
+            document.getElementById('seedDisplay').textContent = '•••••••••••• (clique em Mostrar)';
+            document.getElementById('exportSeedDisplay').textContent = seedPhrase;
+        }
+    } catch(e) {
+        window.location.href = '/login.html';
+    }
+}
+
+function previewAvatar(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        document.getElementById('avatarPreview').src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function toggleSeed() {
+    if (!seedPhrase) {
+        alert('⚠️ Nenhuma frase secreta encontrada.');
+        return;
+    }
+    const display = document.getElementById('seedDisplay');
+    if (seedVisible) {
+        display.textContent = '•••••••••••• (clique em Mostrar)';
+        seedVisible = false;
+    } else {
+        display.textContent = seedPhrase;
+        seedVisible = true;
+    }
+}
+
+function copySeed() {
+    if (!seedPhrase) {
+        alert('⚠️ Nenhuma frase secreta encontrada.');
+        return;
+    }
+    navigator.clipboard.writeText(seedPhrase).then(() => {
+        alert('✅ Frase secreta copiada!');
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = seedPhrase;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('✅ Frase secreta copiada!');
+    });
+}
+
+document.getElementById('saveBtn').onclick = async function() {
+    const btn = this;
+    const formData = new FormData();
+    const username = document.getElementById('usernameInput').value.trim();
+    formData.append('username', username);
+    
+    const avatarFile = document.getElementById('avatarInput').files[0];
+    if (avatarFile) {
+        formData.append('avatar', avatarFile);
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    const msg = document.getElementById('msg');
+    msg.className = '';
+    msg.textContent = '';
+    
+    try {
+        const res = await fetch('/api/user/update', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+            msg.className = 'message success';
+            msg.textContent = '✅ Perfil atualizado!';
+            if (data.user) {
+                document.getElementById('usernameDisplay').textContent = data.user.username || 'Anônimo';
+                if (data.user.avatar_url) {
+                    document.getElementById('avatarPreview').src = data.user.avatar_url;
+                }
+                currentUser = data.user;
+            }
+            // Limpa o input de arquivo
+            document.getElementById('avatarInput').value = '';
+        } else {
+            msg.className = 'message error';
+            msg.textContent = '❌ ' + (data.error || 'Erro ao atualizar');
+        }
+    } catch(e) {
+        msg.className = 'message error';
+        msg.textContent = '❌ Erro de conexão.';
+    }
+    btn.disabled = false;
+    btn.textContent = '💾 Salvar';
+};
+
+function exportKeys() {
+    if (!seedPhrase) {
+        alert('⚠️ Você precisa ter uma frase secreta para exportar o arquivo de forma segura.');
+        return;
+    }
+    document.getElementById('exportModal').style.display = 'flex';
+    document.getElementById('exportSeedDisplay').textContent = seedPhrase;
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+async function confirmExport() {
+    const userId = localStorage.getItem('userId');
+    const publicKey = localStorage.getItem('publicKey');
+    const privateKey = localStorage.getItem('privateKey');
+    
+    if (!userId || !publicKey || !privateKey) {
+        document.getElementById('keyMsg').className = 'message error';
+        document.getElementById('keyMsg').textContent = '❌ Nenhuma chave encontrada.';
+        closeModal('exportModal');
+        return;
+    }
+    
+    const password = seedPhrase;
+    if (!password) {
+        document.getElementById('keyMsg').className = 'message error';
+        document.getElementById('keyMsg').textContent = '❌ Nenhuma frase secreta encontrada.';
+        closeModal('exportModal');
+        return;
+    }
+    
+    let data = { userId, publicKey, privateKey };
+    
+    try {
+        const encrypted = await encryptData(data, password);
+        const finalData = { 
+            encrypted: true, 
+            data: encrypted,
+            version: '2.0',
+            note: 'Este arquivo só pode ser aberto com a frase secreta de 12 palavras'
+        };
+        
+        const username = currentUser.username || userId.substring(0, 8);
+        const safeName = username.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+        const fileName = `${safeName}-keys-secure.json`;
+        
+        const blob = new Blob([JSON.stringify(finalData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        document.getElementById('keyMsg').className = 'message success';
+        document.getElementById('keyMsg').textContent = `✅ Arquivo exportado: ${fileName}`;
+        closeModal('exportModal');
+    } catch(e) {
+        document.getElementById('keyMsg').className = 'message error';
+        document.getElementById('keyMsg').textContent = '❌ Erro ao criptografar: ' + e.message;
+        closeModal('exportModal');
+    }
+}
+
+async function importKeys(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            let keys = data;
+            
+            if (data.encrypted && data.version === '2.0') {
+                const seedPhraseInput = prompt('🔐 Digite sua frase secreta de 12 palavras para abrir o arquivo:');
+                if (!seedPhraseInput) {
+                    document.getElementById('keyMsg').className = 'message error';
+                    document.getElementById('keyMsg').textContent = '❌ Frase secreta necessária.';
+                    return;
+                }
+                try {
+                    keys = await decryptData(data.data, seedPhraseInput.trim());
+                } catch(err) {
+                    document.getElementById('keyMsg').className = 'message error';
+                    document.getElementById('keyMsg').textContent = '❌ Frase secreta incorreta.';
+                    return;
+                }
+            } else if (data.encrypted) {
+                const password = prompt('🔐 Digite a senha do arquivo:');
+                if (!password) {
+                    document.getElementById('keyMsg').className = 'message error';
+                    document.getElementById('keyMsg').textContent = '❌ Senha necessária.';
+                    return;
+                }
+                try {
+                    keys = await decryptData(data.data, password);
+                } catch(err) {
+                    document.getElementById('keyMsg').className = 'message error';
+                    document.getElementById('keyMsg').textContent = '❌ Senha incorreta.';
+                    return;
+                }
+            }
+            
+            if (!keys.userId || !keys.publicKey || !keys.privateKey) {
+                document.getElementById('keyMsg').className = 'message error';
+                document.getElementById('keyMsg').textContent = '❌ Arquivo inválido.';
+                return;
+            }
+            
+            localStorage.setItem('userId', keys.userId);
+            localStorage.setItem('publicKey', keys.publicKey);
+            localStorage.setItem('privateKey', keys.privateKey);
+            
+            document.getElementById('keyMsg').className = 'message success';
+            document.getElementById('keyMsg').textContent = '✅ Chaves importadas! Recarregando...';
+            setTimeout(() => window.location.reload(), 1500);
+            
+        } catch(err) {
+            document.getElementById('keyMsg').className = 'message error';
+            document.getElementById('keyMsg').textContent = '❌ Erro ao importar: ' + err.message;
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+async function deriveKey(secret, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: encoder.encode(salt), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function encryptData(data, secret) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(secret, salt);
+    const encoder = new TextEncoder();
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, encoder.encode(JSON.stringify(data)));
+    return JSON.stringify({
+        salt: btoa(String.fromCharCode(...salt)),
+        iv: btoa(String.fromCharCode(...iv)),
+        data: btoa(String.fromCharCode(...new Uint8Array(encrypted)))
+    });
+}
+
+async function decryptData(encryptedStr, secret) {
+    const parsed = JSON.parse(encryptedStr);
+    const salt = Uint8Array.from(atob(parsed.salt), c => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(parsed.iv), c => c.charCodeAt(0));
+    const data = Uint8Array.from(atob(parsed.data), c => c.charCodeAt(0));
+    const key = await deriveKey(secret, salt);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, data);
+    return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+document.getElementById('deleteBtn').onclick = async () => {
+    if (!confirm('Tem certeza? Isso excluirá todos os seus dados permanentemente.')) return;
+    if (!confirm('Última chance: esta ação não pode ser desfeita.')) return;
+    try {
+        const res = await fetch('/api/user/delete', { method: 'DELETE' });
+        if (res.ok) {
+            localStorage.clear();
+            window.location.href = '/login.html';
+        } else {
+            alert('Erro ao excluir conta.');
+        }
+    } catch(e) {
+        alert('Erro de conexão.');
+    }
+};
+
+document.getElementById('exportModal').onclick = (e) => {
+    if (e.target === document.getElementById('exportModal')) closeModal('exportModal');
+};
+
+loadProfile();
+</script>
+</body>
+</html>

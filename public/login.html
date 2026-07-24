@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+        .container { background: var(--bg-container); padding: 32px 24px; border-radius: 20px; width: 100%; max-width: 400px; border: 1px solid var(--border-color); }
+        .logo { text-align: center; font-size: 28px; font-weight: 700; color: var(--accent-gold); margin-bottom: 4px; }
+        .logo span { font-size: 14px; color: var(--text-secondary); display: block; font-weight: 400; }
+        
+        .tabs { display: flex; gap: 4px; margin: 16px 0; background: var(--bg-input); border-radius: 12px; padding: 4px; border: 1px solid var(--border-color); }
+        .tabs button { flex: 1; padding: 8px 4px; border-radius: 10px; border: none; background: transparent; cursor: pointer; font-size: 12px; color: var(--text-secondary); transition: all .3s; font-weight: 600; }
+        .tabs button.active { background: var(--accent-gold); color: #fff; }
+        .tabs button:hover:not(.active) { background: var(--bg-header); }
+        
+        .form { display: none; animation: fadeIn .3s ease; }
+        .form.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .input-group { margin-bottom: 14px; }
+        .input-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500; }
+        .input-group input, .input-group textarea { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-input); font-size: 14px; outline: none; }
+        .input-group input:focus, .input-group textarea:focus { border-color: var(--accent-gold); }
+        .input-group textarea { resize: vertical; min-height: 60px; font-family: monospace; }
+        
+        .btn { width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--accent-gold); color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all .2s; margin-top: 4px; }
+        .btn:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-header); transform: none; }
+        
+        .error { color: #ef4444; font-size: 13px; text-align: center; margin-top: 8px; min-height: 20px; }
+        .success { color: #22c55e; font-size: 13px; text-align: center; margin-top: 8px; }
+        .info { font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 12px; line-height: 1.6; }
+        .info strong { color: var(--text-secondary); }
+        
+        .file-upload-area { border: 2px dashed var(--border-color); border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin: 8px 0; }
+        .file-upload-area:hover { border-color: var(--accent-gold); background: var(--bg-header); }
+        .file-upload-area .icon { font-size: 32px; display: block; margin-bottom: 4px; }
+        .file-upload-area .text { font-size: 13px; color: var(--text-secondary); }
+        .file-input { display: none; }
+        .file-upload-area .file-name { font-size: 12px; color: var(--accent-gold); font-weight: 600; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="logo">🚗 Papalegua<span>Privacidade total</span></div>
+    
+    <div class="tabs">
+        <button class="active" id="tabNew" onclick="switchTab('new')">🆕 Novo</button>
+        <button id="tabFile" onclick="switchTab('file')">📂 Arquivo</button>
+        <button id="tabSeed" onclick="switchTab('seed')">🔑 Frase</button>
+        <button id="tabQr" onclick="switchTab('qr')">🔒 QR</button>
+    </div>
+
+    <!-- ===== ABA 1: NOVO USUÁRIO ===== -->
+    <div id="formNew" class="form active">
+        <form id="registerForm">
+            <div class="input-group">
+                <label>Apelido (opcional)</label>
+                <input type="text" id="newUsername" placeholder="Como você quer ser chamado?">
+            </div>
+            <button type="submit" class="btn" id="registerBtn">🔐 Criar conta</button>
+            <div class="error" id="registerError"></div>
+        </form>
+        <div class="info">Sua conta será protegida por uma <strong>frase secreta de 12 palavras</strong>.</div>
+    </div>
+
+    <!-- ===== ABA 2: LOGIN COM ARQUIVO .json ===== -->
+    <div id="formFile" class="form">
+        <form id="fileLoginForm">
+            <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('fileInput').click()">
+                <span class="icon">📂</span>
+                <span class="text">Clique para selecionar arquivo .json</span>
+                <br><small style="color: var(--text-muted);">Arquivo exportado com segurança</small>
+                <div class="file-name" id="fileNameDisplay"></div>
+            </div>
+            <input type="file" id="fileInput" class="file-input" accept=".json" onchange="handleFileLogin(event)">
+            
+            <div class="input-group" style="margin-top:12px;">
+                <label>🔐 Frase secreta (12 palavras)</label>
+                <textarea id="fileSeedPhrase" placeholder="Digite sua frase secreta para abrir o arquivo..." rows="2"></textarea>
+            </div>
+            <button type="submit" class="btn" id="fileLoginBtn">📤 Importar e entrar</button>
+            <div class="error" id="fileLoginError"></div>
+        </form>
+        <div class="info">Selecione o arquivo <strong>.json</strong> e digite sua <strong>frase secreta</strong> para acessar sua conta.</div>
+    </div>
+
+    <!-- ===== ABA 3: RECUPERAR COM FRASE SECRETA ===== -->
+    <div id="formSeed" class="form">
+        <form id="seedLoginForm">
+            <div class="input-group">
+                <label>Seu ID</label>
+                <input type="text" id="seedUserId" placeholder="Ex: 4bf38dc2278098a0..." required>
+            </div>
+            <div class="input-group">
+                <label>🔐 Frase secreta (12 palavras)</label>
+                <textarea id="seedPhraseInput" placeholder="Digite as 12 palavras separadas por espaço..." rows="3" required></textarea>
+            </div>
+            <button type="submit" class="btn" id="seedLoginBtn">🔄 Recuperar conta</button>
+            <div class="error" id="seedLoginError"></div>
+        </form>
+        <div class="info">Digite seu <strong>ID</strong> e sua <strong>frase secreta</strong> para recuperar sua conta.</div>
+    </div>
+    <div id="formQr" class="form">
+        <div style="text-align:center;">
+            <video id="qrLoginVideo" autoplay playsinline muted style="width:100%;max-width:280px;border-radius:12px;background:#000;"></video>
+            <div class="error" id="qrLoginStatus" style="margin-top:10px;"></div>
+            <button type="button" class="btn" id="qrLoginBtn" onclick="startQrLoginCamera()">📷 Abrir câmera</button>
+        </div>
+        <div class="info">Aponte a câmera para o <strong>QR Code de recuperação</strong> gerado nas configurações da sua conta.</div>
+    </div>
+    <div style="text-align:center; margin-top:14px;"><a href="/leia-me.html" style="color:var(--accent-gold); font-size:13px; text-decoration:none;">📖 Como funciona? Leia-me</a></div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+// ===============================================
+// FUNÇÕES DE CRIPTOGRAFIA
+// ===============================================
+async function deriveKey(secret, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: encoder.encode(salt), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function decryptData(encryptedStr, secret) {
+    const parsed = JSON.parse(encryptedStr);
+    const salt = Uint8Array.from(atob(parsed.salt), c => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(parsed.iv), c => c.charCodeAt(0));
+    const data = Uint8Array.from(atob(parsed.data), c => c.charCodeAt(0));
+    const key = await deriveKey(secret, salt);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, data);
+    return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+// ===============================================
+// SWITCH TABS
+// ===============================================
+function switchTab(tab) {
+    document.querySelectorAll('.form').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tabs button').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+    document.getElementById('form' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+}
+
+// ===============================================
+// ABA 1: NOVO USUÁRIO
+// ===============================================
+document.getElementById('registerForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('registerBtn');
+    const error = document.getElementById('registerError');
+    const username = document.getElementById('newUsername').value.trim();
+    
+    btn.disabled = true;
+    btn.textContent = 'Gerando chaves...';
+    error.textContent = '';
+    
+    try {
+        const res = await fetch('/api/register-anon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username || null })
+        });
+        const data = await res.json();
+        if (data.userId) {
+            localStorage.setItem('userId', data.userId);
+            localStorage.setItem('publicKey', data.publicKey);
+            localStorage.setItem('privateKey', data.privateKey);
+            localStorage.setItem('seedPhrase', data.seedPhrase);
+            window.location.href = '/contacts.html';
+        } else {
+            error.textContent = data.error || 'Erro ao criar conta';
+        }
+    } catch(err) {
+        error.textContent = 'Erro de conexão. Tente novamente.';
+    }
+    btn.disabled = false;
+    btn.textContent = '🔐 Criar conta';
+};
+
+// ===============================================
+// ABA 2: LOGIN COM ARQUIVO .json
+// ===============================================
+let selectedFileData = null;
+
+function handleFileLogin(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            selectedFileData = JSON.parse(e.target.result);
+            document.querySelector('.file-upload-area .text').textContent = '✅ Arquivo selecionado';
+            document.getElementById('fileNameDisplay').textContent = file.name;
+            document.querySelector('.file-upload-area .icon').textContent = '✅';
+            document.getElementById('fileLoginError').textContent = '';
+        } catch(err) {
+            document.getElementById('fileLoginError').textContent = '❌ Arquivo inválido.';
+            selectedFileData = null;
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+document.getElementById('fileLoginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('fileLoginBtn');
+    const error = document.getElementById('fileLoginError');
+    const seedPhrase = document.getElementById('fileSeedPhrase').value.trim();
+    
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    error.textContent = '';
+    
+    if (!selectedFileData) {
+        error.textContent = '❌ Selecione um arquivo .json primeiro.';
+        btn.disabled = false;
+        btn.textContent = '📤 Importar e entrar';
+        return;
+    }
+    
+    if (!seedPhrase) {
+        error.textContent = '❌ Digite sua frase secreta.';
+        btn.disabled = false;
+        btn.textContent = '📤 Importar e entrar';
+        return;
+    }
+    
+    try {
+        let keys = selectedFileData;
+        
+        // Descriptografa se o arquivo estiver criptografado
+        if (selectedFileData.encrypted) {
+            try {
+                keys = await decryptData(selectedFileData.data, seedPhrase);
+            } catch(err) {
+                error.textContent = '❌ Frase secreta incorreta.';
+                btn.disabled = false;
+                btn.textContent = '📤 Importar e entrar';
+                return;
+            }
+        }
+        
+        if (!keys.userId || !keys.publicKey || !keys.privateKey) {
+            error.textContent = '❌ Arquivo inválido.';
+            btn.disabled = false;
+            btn.textContent = '📤 Importar e entrar';
+            return;
+        }
+        
+        // Verifica se o usuário existe no servidor
+        const verifyRes = await fetch(`/api/public-key/${keys.userId}`);
+        if (!verifyRes.ok) {
+            error.textContent = '❌ Usuário não encontrado.';
+            btn.disabled = false;
+            btn.textContent = '📤 Importar e entrar';
+            return;
+        }
+        
+        // FAZ LOGIN (cria sessão no servidor)
+        const loginRes = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: keys.userId })
+        });
+        const loginData = await loginRes.json();
+        if (!loginData.success) {
+            error.textContent = '❌ Erro ao fazer login: ' + (loginData.error || '');
+            btn.disabled = false;
+            btn.textContent = '📤 Importar e entrar';
+            return;
+        }
+        
+        // Salva os dados
+        localStorage.setItem('userId', keys.userId);
+        localStorage.setItem('publicKey', keys.publicKey);
+        localStorage.setItem('privateKey', keys.privateKey);
+        localStorage.setItem('seedPhrase', seedPhrase);
+        
+        window.location.href = '/contacts.html';
+        
+    } catch(err) {
+        error.textContent = '❌ Erro: ' + err.message;
+        btn.disabled = false;
+        btn.textContent = '📤 Importar e entrar';
+    }
+};
+
+// ===============================================
+// ABA 3: RECUPERAR COM FRASE SECRETA
+// ===============================================
+document.getElementById('seedLoginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('seedLoginBtn');
+    const error = document.getElementById('seedLoginError');
+    const userId = document.getElementById('seedUserId').value.trim();
+    const seedPhrase = document.getElementById('seedPhraseInput').value.trim();
+    
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    error.textContent = '';
+    
+    if (!userId || !seedPhrase) {
+        error.textContent = '❌ Preencha todos os campos.';
+        btn.disabled = false;
+        btn.textContent = '🔄 Recuperar conta';
+        return;
+    }
+    
+    try {
+        // Verifica a frase secreta
+        const res = await fetch('/api/verify-seed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, seedPhrase })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            // Busca a chave pública
+            const keyRes = await fetch(`/api/public-key/${userId}`);
+            const keyData = await keyRes.json();
+            
+            // FAZ LOGIN (cria sessão)
+            const loginRes = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId })
+            });
+            const loginData = await loginRes.json();
+            
+            localStorage.setItem('userId', userId);
+            localStorage.setItem('publicKey', keyData.publicKey);
+            localStorage.setItem('seedPhrase', seedPhrase);
+            
+            alert('✅ Conta verificada! Importe seu arquivo .json para acessar as mensagens.');
+            window.location.href = '/profile.html';
+        } else {
+            error.textContent = data.error || '❌ Frase secreta incorreta.';
+        }
+    } catch(err) {
+        error.textContent = 'Erro de conexão.';
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 Recuperar conta';
+};
+
+// ===============================================
+// VERIFICA SESSÃO EXISTENTE
+// ===============================================
+window.onload = function() {
+    const userId = localStorage.getItem('userId');
+    if (userId) {
+        window.location.href = '/contacts.html';
+    }
+};
+
+// ===============================================
+// ABA QR: LOGIN COM QR DE RECUPERAÇÃO
+// ===============================================
+let qrLoginScanning = false;
+let qrLoginStream = null;
+
+async function startQrLoginCamera() {
+    const video = document.getElementById('qrLoginVideo');
+    const status = document.getElementById('qrLoginStatus');
+    const btn = document.getElementById('qrLoginBtn');
+    status.textContent = '';
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Abrindo câmera...';
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+        });
+        qrLoginStream = stream;
+        video.srcObject = stream;
+        await video.play();
+        btn.style.display = 'none';
+        status.textContent = '🔍 Aponte para o QR de recuperação...';
+        qrLoginScanning = true;
+        scanQrLoginLoop(video, status, btn);
+    } catch (err) {
+        console.error('Erro na câmera:', err);
+        status.textContent = '❌  Erro ao acessar câmera: ' + (err.message || 'Permissão negada');
+        btn.disabled = false;
+        btn.textContent = '📷 Abrir câmera';
+    }
+}
+
+function scanQrLoginLoop(video, status, btn) {
+    if (!qrLoginScanning) return;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+        if (code && code.data) {
+            qrLoginScanning = false;
+            if (qrLoginStream) qrLoginStream.getTracks().forEach(t => t.stop());
+            handleQrLoginResult(code.data, status, btn);
+            return;
+        }
+    }
+    requestAnimationFrame(() => scanQrLoginLoop(video, status, btn));
+}
+
+async function handleQrLoginResult(rawData, status, btn) {
+    status.textContent = '⏳ Verificando...';
+    try {
+        const parsed = JSON.parse(rawData);
+        if (!parsed.uid || !parsed.secret) throw new Error('QR inválido');
+
+        const res = await fetch('/api/account/recovery/redeem', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: parsed.uid, secret: parsed.secret })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            status.textContent = '❌  ' + (data.error || 'QR inválido ou já utilizado');
+            btn.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = '📷 Tentar novamente';
+            return;
+        }
+
+        localStorage.setItem('userId', parsed.uid);
+        status.textContent = '✅  Conta recuperada com sucesso!';
+        setTimeout(() => { window.location.href = '/profile.html'; }, 800);
+    } catch (err) {
+        console.error('Erro ao processar QR:', err);
+        status.textContent = '❌  QR Code inválido para recuperação de conta.';
+        btn.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '📷 Tentar novamente';
+    }
+}
+
+</script>
+</body>
+</html>

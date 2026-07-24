@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escanear QR - Papalegua</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --text-muted: #a0846a;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
+        .container { background: var(--bg-container); padding: 24px; border-radius: 20px; border: 1px solid var(--border-color); max-width: 450px; width: 100%; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .header .back-btn { background: rgba(212,175,55,0.12); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 6px 12px; border-radius: 10px; cursor: pointer; font-size: 16px; text-decoration: none; }
+        .header .title { font-size: 20px; font-weight: 700; color: var(--accent-gold); flex: 1; text-align: center; }
+        
+        .video-container { 
+            background: #000; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            margin: 12px 0;
+            position: relative;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-container video { width: 100%; display: block; }
+        .video-container .scan-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid var(--accent-gold);
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .video-container .scan-overlay .corner {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-color: var(--accent-gold);
+            border-style: solid;
+            border-width: 0;
+        }
+        .video-container .scan-overlay .corner.tl { top: -3px; left: -3px; border-top-width: 4px; border-left-width: 4px; border-radius: 4px 0 0 0; }
+        .video-container .scan-overlay .corner.tr { top: -3px; right: -3px; border-top-width: 4px; border-right-width: 4px; border-radius: 0 4px 0 0; }
+        .video-container .scan-overlay .corner.bl { bottom: -3px; left: -3px; border-bottom-width: 4px; border-left-width: 4px; border-radius: 0 0 0 4px; }
+        .video-container .scan-overlay .corner.br { bottom: -3px; right: -3px; border-bottom-width: 4px; border-right-width: 4px; border-radius: 0 0 4px 0; }
+        
+        .video-container .scan-line {
+            position: absolute;
+            top: 50%;
+            left: 10%;
+            right: 10%;
+            height: 2px;
+            background: var(--accent-gold);
+            animation: scanLine 2s infinite;
+            box-shadow: 0 0 10px var(--accent-gold);
+        }
+        @keyframes scanLine {
+            0% { transform: translateY(-80px); opacity: 1; }
+            50% { transform: translateY(80px); opacity: 0.5; }
+            100% { transform: translateY(-80px); opacity: 1; }
+        }
+        
+        .status-text { text-align: center; font-size: 13px; color: var(--text-muted); margin: 8px 0; min-height: 20px; }
+        .status-text.error { color: #ef4444; }
+        .status-text.success { color: #22c55e; }
+        
+        .qr-result { 
+            margin-top: 12px; 
+            padding: 16px; 
+            border-radius: 12px; 
+            background: var(--bg-input); 
+            border: 1px solid var(--border-color);
+            display: none;
+        }
+        .qr-result .id { font-family: monospace; color: var(--accent-gold); font-weight: 600; word-break: break-all; font-size: 14px; }
+        .qr-result .actions { display: flex; gap: 8px; margin-top: 10px; }
+        .qr-result .actions button { padding: 10px 20px; border-radius: 10px; border: none; cursor: pointer; font-weight: 600; transition: all .2s; flex: 1; }
+        .qr-result .actions .add-btn { background: var(--accent-gold); color: #fff; }
+        .qr-result .actions .add-btn:hover { background: var(--accent-orange); }
+        .qr-result .actions .close-btn { background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .qr-result .actions .close-btn:hover { background: var(--bg-header); }
+        
+        .btn { width: 100%; padding: 12px; border-radius: 12px; border: none; font-weight: 700; cursor: pointer; transition: all .2s; }
+        .btn-gold { background: var(--accent-gold); color: #fff; }
+        .btn-gold:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .btn-secondary { background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-header); }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
+        
+        .btn-group { display: flex; gap: 8px; margin-top: 8px; }
+        .btn-group .btn { flex: 1; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <button class="back-btn" onclick="window.location.href='/contacts.html'">←</button>
+        <span class="title">📷 Escanear QR</span>
+        <span style="width:40px;"></span>
+    </div>
+    
+    <div class="video-container" id="videoContainer">
+        <video id="qrVideo" autoplay playsinline></video>
+        <div class="scan-overlay">
+            <div class="corner tl"></div>
+            <div class="corner tr"></div>
+            <div class="corner bl"></div>
+            <div class="corner br"></div>
+        </div>
+        <div class="scan-line"></div>
+    </div>
+    
+    <div class="status-text" id="qrStatus">⏳ Clique em "Iniciar câmera"</div>
+    
+    <div class="qr-result" id="qrResult">
+        <div style="font-weight:600;font-size:15px;">✅ QR Code detectado!</div>
+        <div style="font-size:13px;color:var(--text-muted);margin:4px 0;">ID do usuário:</div>
+        <div class="id" id="scannedUserId">---</div>
+        <div class="actions">
+            <button class="add-btn" onclick="addScannedContact()">➕ Adicionar</button>
+            <button class="close-btn" onclick="resetScanner()">↻ Escanear outro</button>
+        </div>
+    </div>
+    
+    <div class="btn-group">
+        <button class="btn btn-gold" onclick="startCamera()">📷 Iniciar câmera</button>
+        <button class="btn btn-secondary" onclick="window.location.href='/contacts.html'">← Voltar</button>
+    </div>
+</div>
+
+<script>
+let scanning = false;
+let scanTimeout = null;
+let currentVideo = null;
+let currentStream = null;
+
+// ===============================================
+// INICIAR CÂMERA
+// ===============================================
+async function startCamera() {
+    const video = document.getElementById('qrVideo');
+    const status = document.getElementById('qrStatus');
+    const result = document.getElementById('qrResult');
+    result.style.display = 'none';
+    currentVideo = video;
+    
+    try {
+        status.textContent = '📷 Solicitando acesso à câmera...';
+        status.className = 'status-text';
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+        });
+        currentStream = stream;
+        
+        video.srcObject = stream;
+        await video.play();
+        
+        status.textContent = '🔍 Aponte para o QR Code...';
+        status.className = 'status-text';
+        
+        scanning = true;
+        scanQRCode();
+        
+    } catch(err) {
+        console.error('Erro na câmera:', err);
+        status.textContent = '❌ Erro ao acessar câmera: ' + (err.message || 'Permissão negada');
+        status.className = 'status-text error';
+    }
+}
+
+// ===============================================
+// ESCANEAR QR CODE
+// ===============================================
+function scanQRCode() {
+    if (!scanning) return;
+    
+    const video = currentVideo || document.getElementById('qrVideo');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert",
+        });
+        
+        if (code && code.data) {
+            const scannedId = code.data.trim();
+            // Verifica se é um ID válido (32 caracteres hex)
+            if (/^[a-f0-9]{32}$/.test(scannedId)) {
+                scanning = false;
+                document.getElementById('qrStatus').textContent = '✅ QR Code detectado!';
+                document.getElementById('qrStatus').className = 'status-text success';
+                document.getElementById('scannedUserId').textContent = scannedId;
+                document.getElementById('qrResult').style.display = 'block';
+                
+                // Para a câmera
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                    currentStream = null;
+                    video.srcObject = null;
+                }
+                return;
+            }
+        }
+    }
+    
+    scanTimeout = setTimeout(scanQRCode, 100);
+}
+
+// ===============================================
+// ADICIONAR CONTATO ESCANEADO
+// ===============================================
+async function addScannedContact() {
+    const userId = document.getElementById('scannedUserId').textContent;
+    if (!userId || userId === '---') return;
+    
+    try {
+        const res = await fetch(`/api/public-key/${userId}`);
+        if (!res.ok) {
+            alert('❌ Usuário não encontrado no servidor');
+            return;
+        }
+        
+        const contacts = JSON.parse(localStorage.getItem('contacts') || '[]');
+        if (!contacts.includes(userId)) {
+            contacts.push(userId);
+            localStorage.setItem('contacts', JSON.stringify(contacts));
+            alert('✅ Contato adicionado com sucesso!');
+            window.location.href = '/contacts.html';
+        } else {
+            alert('ℹ️ Contato já está na sua lista');
+            resetScanner();
+        }
+    } catch(e) {
+        alert('❌ Erro ao adicionar contato: ' + e.message);
+    }
+}
+
+// ===============================================
+// RESETAR SCANNER
+// ===============================================
+function resetScanner() {
+    document.getElementById('qrResult').style.display = 'none';
+    document.getElementById('qrStatus').textContent = '🔍 Aponte para o QR Code...';
+    document.getElementById('qrStatus').className = 'status-text';
+    startCamera();
+}
+
+// ===============================================
+// LIMPAR AO FECHAR
+// ===============================================
+window.addEventListener('beforeunload', () => {
+    if (scanTimeout) {
+        clearTimeout(scanTimeout);
+        scanTimeout = null;
+    }
+    scanning = false;
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
+});
+</script>
+</body>
+</html>

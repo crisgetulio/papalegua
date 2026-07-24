@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grupos - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-header: #f5ede2;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 600px; height: 100vh; background: var(--bg-container); display: flex; flex-direction: column; overflow: hidden; }
+        header { background: var(--bg-header); padding: 14px 16px; border-bottom: 2px solid var(--accent-gold); display: flex; align-items: center; justify-content: space-between; }
+        .logo { font-size: 20px; font-weight: 700; color: var(--accent-gold); }
+        .back-btn { background: rgba(212,175,55,0.15); border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
+        .content { flex: 1; padding: 16px; overflow-y: auto; }
+        .group-item { background: var(--bg-header); padding: 14px; border-radius: 12px; margin-bottom: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 12px; transition: all .2s; }
+        .group-item:active { transform: scale(0.98); }
+        .group-item:hover { border-color: var(--accent-gold); }
+        .group-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color); background: var(--bg-container); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+        .group-info { flex: 1; }
+        .group-name { font-weight: 600; color: var(--text-primary); font-size: 16px; }
+        .group-info-text { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        .btn-add { background: var(--accent-gold); color: #fff; border: none; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all .2s; }
+        .btn-add:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 10px; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: var(--bg-container); padding: 24px; border-radius: 16px; max-width: 400px; width: 90%; }
+        .modal-content h3 { margin-bottom: 12px; color: var(--text-primary); }
+        .modal-content input, .modal-content textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); margin: 8px 0; font-size: 14px; }
+        .modal-content textarea { min-height: 60px; resize: vertical; font-family: monospace; }
+        .modal-content .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; background: var(--accent-gold); color: #fff; font-weight: 700; cursor: pointer; margin-top: 8px; }
+        .modal-content .btn:hover { background: var(--accent-orange); }
+        .modal-content .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); }
+        .modal-content .btn-secondary:hover { background: var(--bg-header); }
+        .modal-content .help { font-size: 12px; color: var(--text-muted); margin: 4px 0; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">👥 Grupos</div>
+        <a href="/contacts.html" class="back-btn">←</a>
+    </header>
+    <div class="content">
+        <button class="btn-add" onclick="showCreateGroup()">+ Criar grupo</button>
+        <div id="groupsList" style="margin-top:12px;"></div>
+    </div>
+    
+    <div class="modal" id="createModal">
+        <div class="modal-content">
+            <h3>➕ Criar Grupo</h3>
+            <input type="text" id="groupName" placeholder="Nome do grupo">
+            <textarea id="groupMembers" placeholder="IDs dos membros (um por linha)"></textarea>
+            <div class="help">💡 Adicione o ID de outros usuários para eles verem o grupo</div>
+            <button class="btn" onclick="createGroup()">Criar</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadGroups() {
+    try {
+        const res = await fetch('/api/groups');
+        const groups = await res.json();
+        const list = document.getElementById('groupsList');
+        list.innerHTML = '';
+        
+        if (groups.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">👥</div>
+                    <p>Nenhum grupo ainda</p>
+                    <p style="font-size:12px;margin-top:4px;">Crie um grupo e adicione amigos</p>
+                </div>
+            `;
+            return;
+        }
+        
+        groups.forEach(g => {
+            const div = document.createElement('div');
+            div.className = 'group-item';
+            const avatarUrl = g.avatar_url || '/uploads/group_avatars/default.svg';
+            div.innerHTML = `
+                <img class="group-avatar" src="${avatarUrl}" onerror="this.src='/uploads/group_avatars/default.svg'">
+                <div class="group-info">
+                    <div class="group-name">${g.name}</div>
+                    <div class="group-info-text">${g.member_count || 0} membros</div>
+                </div>
+            `;
+            div.onclick = () => {
+                localStorage.setItem('groupId', g.id);
+                window.location.href = '/group-chat.html';
+            };
+            list.appendChild(div);
+        });
+    } catch(e) {
+        console.error('Erro ao carregar grupos:', e);
+    }
+}
+
+function showCreateGroup() {
+    document.getElementById('createModal').style.display = 'flex';
+    document.getElementById('groupName').value = '';
+    document.getElementById('groupMembers').value = '';
+}
+
+function closeModal() {
+    document.getElementById('createModal').style.display = 'none';
+}
+
+async function createGroup() {
+    const name = document.getElementById('groupName').value.trim();
+    const membersText = document.getElementById('groupMembers').value.trim();
+    if (!name) { alert('Digite um nome para o grupo'); return; }
+    
+    const members = membersText ? membersText.split('\n').map(m => m.trim()).filter(m => m) : [];
+    
+    try {
+        const res = await fetch('/api/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, members })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('✅ Grupo criado com sucesso!');
+            closeModal();
+            loadGroups();
+        } else {
+            alert('❌ Erro ao criar grupo: ' + (data.error || ''));
+        }
+    } catch(e) {
+        alert('❌ Erro de conexão');
+    }
+}
+
+// Carrega ao iniciar
+loadGroups();
+
+// Fecha modal ao clicar fora
+document.getElementById('createModal').onclick = (e) => {
+    if (e.target === document.getElementById('createModal')) closeModal();
+};
+</script>
+</body>
+</html>

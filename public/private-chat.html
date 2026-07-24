@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chat Privado - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-header: #f5ede2;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --text-muted: #a0846a;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; background: var(--bg-body); font-family: 'Segoe UI', sans-serif; }
+        body { display: flex; justify-content: center; align-items: center; }
+        .container { width: 100%; max-width: 600px; height: 100%; background: var(--bg-container); display: flex; flex-direction: column; overflow: hidden; }
+        
+        header { background: var(--bg-header); padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 2px solid var(--accent-gold); flex-shrink: 0; }
+        .back-btn { background: rgba(212,175,55,0.15); border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 6px 10px; border-radius: 10px; cursor: pointer; font-size: 18px; text-decoration: none; }
+        .chat-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid var(--accent-gold); }
+        .chat-details { flex: 1; min-width: 0; }
+        .chat-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+        .chat-status { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+        .status-dot.online { background: #22c55e; }
+        .status-dot.offline { background: #b0a090; }
+        
+        .messages-area { flex: 1; overflow-y: auto; padding: 12px; background: var(--bg-container); }
+        .msg-line { display: flex; flex-direction: column; margin-bottom: 4px; }
+        .msg-line.me { align-items: flex-end; }
+        .msg-line.other { align-items: flex-start; }
+        .balloon { padding: 8px 12px; border-radius: 14px; max-width: 85%; font-size: 14px; line-height: 1.45; box-shadow: 0 2px 8px rgba(0,0,0,0.06); position: relative; word-wrap: break-word; }
+        .me .balloon { background: var(--accent-gold); color: #fff; border-bottom-right-radius: 4px; }
+        .other .balloon { background: #f0e6d8; color: var(--text-primary); border-bottom-left-radius: 4px; }
+        .msg-time { font-size: 10px; opacity: .6; margin-top: 2px; display: flex; justify-content: flex-end; gap: 6px; align-items: center; }
+        .timer-badge { font-size: 10px; background: rgba(0,0,0,0.1); padding: 0 6px; border-radius: 8px; color: var(--accent-orange); font-weight: bold; }
+        
+        .input-area { padding: 8px 12px; background: var(--bg-header); border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+        .input-row { display: flex; gap: 8px; align-items: center; }
+        .text-input { flex: 1; padding: 10px 14px; border-radius: 22px; border: 1px solid var(--border-color); background: var(--bg-input); font-size: 14px; outline: none; }
+        .text-input:focus { border-color: var(--accent-gold); }
+        .action-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--bg-input); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all .2s; flex-shrink: 0; }
+        .action-btn:hover { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        .action-btn.send { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        .action-btn.send:hover { background: var(--accent-orange); }
+        .action-btn.recording { background: #ef4444; color: white; animation: pulse 1.2s infinite; }
+        
+        .ttl-selector { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text-muted); }
+        .ttl-selector select { padding: 4px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-input); }
+        
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.08); } 100% { transform: scale(1); } }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/hybrid-crypto.js"></script>
+</head>
+<body>
+<div class="container">
+    <header>
+        <a href="/contacts.html" class="back-btn">←</a>
+        <img id="chatAvatar" class="chat-avatar" src="/uploads/avatars/default.png" onerror="this.src='/uploads/avatars/default.png'">
+        <div class="chat-details">
+            <div class="chat-title" id="chatPartnerName">Carregando...</div>
+            <div class="chat-status">
+                <span class="status-dot offline" id="statusDot"></span>
+                <span id="statusText">Offline</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="messages-area" id="messagesArea"></div>
+
+    <div class="input-area">
+        <div class="input-row">
+            <div class="ttl-selector">
+                <label>🔥 <select id="ttlSelect"><option value="0">∞</option><option value="10">10s</option><option value="30">30s</option><option value="60">1min</option><option value="300">5min</option></select></label>
+            </div>
+            <input type="text" class="text-input" id="messageInput" placeholder="Mensagem..." autocomplete="off">
+            <button class="action-btn" id="audioBtn" title="Gravar áudio">🎤</button>
+            <button class="action-btn send" id="sendBtn">➤</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== CONFIGURAÇÕES =====
+const socket = io();
+const chatWithId = localStorage.getItem('chatWithId');
+const chatWithName = localStorage.getItem('chatWithName') || 'Contato';
+let myUserId = localStorage.getItem('userId');
+let myPrivateKey = localStorage.getItem('privateKey');
+let partnerPublicKey = null;
+let mediaRecorder = null;
+let audioChunks = [];
+
+document.getElementById('chatPartnerName').textContent = chatWithName;
+
+// ===== FUNÇÕES DE CRIPTOGRAFIA =====
+
+async function encryptMessage(text, publicKeyPem) {
+    try {
+        if (!publicKeyPem) {
+            console.error('Chave pública não fornecida');
+            return null;
+        }
+        return await encryptForRecipient(text, publicKeyPem);
+    } catch(e) {
+        console.error('Erro ao criptografar:', e);
+        return null;
+    }
+}
+
+async function decryptMessage(encryptedPayload, privateKeyPem) {
+    try {
+        return await decryptFromSender(encryptedPayload, privateKeyPem);
+    } catch(e) {
+        console.error('Erro ao descriptografar:', e);
+        return '[Mensagem criptografada]';
+    }
+}
+
+// ===== CARREGAR CHAVE PÚBLICA DO PARCEIRO =====
+async function loadPartnerPublicKey() {
+    try {
+        console.log('🔑 Carregando chave pública de:', chatWithId);
+        const res = await fetch(`/api/public-key/${chatWithId}`);
+        if (!res.ok) {
+            console.error('Erro ao buscar chave pública:', res.status);
+            return false;
+        }
+        const data = await res.json();
+        if (data.publicKey) {
+            partnerPublicKey = data.publicKey;
+            console.log('✅ Chave pública carregada com sucesso');
+            return true;
+        } else {
+            console.error('Chave pública não encontrada na resposta');
+            return false;
+        }
+    } catch(e) {
+        console.error('Erro ao carregar chave pública:', e);
+        return false;
+    }
+}
+
+// ===== ENVIAR MENSAGEM =====
+document.getElementById('sendBtn').onclick = sendMessage;
+document.getElementById('messageInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendMessage();
+});
+
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text) {
+        console.log('Mensagem vazia');
+        return;
+    }
+    
+    // Se a chave pública ainda não foi carregada, tenta carregar
+    if (!partnerPublicKey) {
+        const loaded = await loadPartnerPublicKey();
+        if (!loaded) {
+            alert('Erro: não foi possível carregar a chave pública do destinatário.');
+            return;
+        }
+    }
+    
+    console.log('🔐 Criptografando mensagem...');
+    const encrypted = await encryptMessage(text, partnerPublicKey);
+    if (!encrypted) {
+        alert('Erro ao criptografar mensagem. Verifique o console para detalhes.');
+        return;
+    }
+    
+    const ttl = parseInt(document.getElementById('ttlSelect').value) || 0;
+    
+    socket.emit('private message', {
+        toUserId: chatWithId,
+        encryptedContent: encrypted,
+        ttl: ttl
+    });
+    
+    input.value = '';
+    addMessageLocal(text, true, ttl);
+}
+
+// ===== ADICIONAR MENSAGEM LOCAL =====
+function addMessageLocal(text, isMe, ttl) {
+    const area = document.getElementById('messagesArea');
+    const line = document.createElement('div');
+    line.className = `msg-line ${isMe ? 'me' : 'other'}`;
+    const balloon = document.createElement('div');
+    balloon.className = 'balloon';
+    balloon.textContent = text;
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'msg-time';
+    const now = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    timeDiv.innerHTML = now;
+    if (ttl > 0) {
+        const timer = document.createElement('span');
+        timer.className = 'timer-badge';
+        timer.textContent = `🔥 ${ttl}s`;
+        timeDiv.appendChild(timer);
+        let remaining = ttl;
+        const interval = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(interval);
+                timer.textContent = '🔥 expirado';
+                balloon.style.opacity = '0.4';
+            } else {
+                timer.textContent = `🔥 ${remaining}s`;
+            }
+        }, 1000);
+    }
+    balloon.appendChild(timeDiv);
+    line.appendChild(balloon);
+    area.appendChild(line);
+    area.scrollTop = area.scrollHeight;
+}
+
+// ===== ÁUDIO =====
+document.getElementById('audioBtn').onclick = async () => {
+    const btn = document.getElementById('audioBtn');
+    if (btn.classList.contains('recording')) {
+        if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+        btn.classList.remove('recording');
+        btn.textContent = '⏹️';
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const base64 = ev.target.result.split(',')[1];
+                if (!partnerPublicKey) {
+                    const loaded = await loadPartnerPublicKey();
+                    if (!loaded) {
+                        alert('Erro ao carregar chave pública');
+                        return;
+                    }
+                }
+                const encrypted = await encryptMessage(base64, partnerPublicKey);
+                if (!encrypted) {
+                    alert('Erro ao criptografar áudio');
+                    return;
+                }
+                const ttl = parseInt(document.getElementById('ttlSelect').value) || 0;
+                socket.emit('private message', {
+                    toUserId: chatWithId,
+                    encryptedContent: encrypted,
+                    ttl: ttl,
+                    isAudio: true
+                });
+                addMessageLocal('🎤 Áudio enviado', true, ttl);
+                btn.textContent = '🎤';
+            };
+            reader.readAsDataURL(blob);
+        };
+        mediaRecorder.start();
+        btn.classList.add('recording');
+        btn.textContent = '⏹️';
+        console.log('🎙️ Gravando...');
+    } catch(e) {
+        alert('Erro ao acessar microfone: ' + e.message);
+    }
+};
+
+// ===== CARREGAR MENSAGENS =====
+async function loadMessages() {
+    try {
+        const res = await fetch(`/api/private-messages?withUserId=${chatWithId}`);
+        const msgs = await res.json();
+        const area = document.getElementById('messagesArea');
+        area.innerHTML = '';
+        for (const msg of msgs) {
+            const isMe = msg.fromUserId === myUserId;
+            let text = '';
+            if (isMe) {
+                text = msg.isAudio ? '🎤 Áudio enviado' : '📤 Mensagem enviada';
+            } else {
+                try {
+                    const decrypted = await decryptMessage(msg.encryptedContent, myPrivateKey);
+                    text = msg.isAudio ? '🎤 Áudio recebido' : decrypted;
+                } catch(e) {
+                    text = '🔒 Mensagem criptografada';
+                }
+            }
+            const line = document.createElement('div');
+            line.className = `msg-line ${isMe ? 'me' : 'other'}`;
+            const balloon = document.createElement('div');
+            balloon.className = 'balloon';
+            balloon.textContent = text;
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'msg-time';
+            const timeStr = new Date(msg.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+            timeDiv.innerHTML = timeStr;
+            if (msg.ttl && msg.ttl > 0) {
+                const timer = document.createElement('span');
+                timer.className = 'timer-badge';
+                timer.textContent = `🔥 ${msg.ttl}s`;
+                timeDiv.appendChild(timer);
+            }
+            balloon.appendChild(timeDiv);
+            line.appendChild(balloon);
+            area.appendChild(line);
+        }
+        area.scrollTop = area.scrollHeight;
+    } catch(e) {
+        console.error('Erro ao carregar mensagens:', e);
+    }
+}
+
+// ===== EVENTOS SOCKET =====
+socket.on('user online', ({ userId }) => {
+    if (userId == chatWithId) updateStatus(true);
+});
+socket.on('user offline', ({ userId }) => {
+    if (userId == chatWithId) updateStatus(false);
+});
+
+function updateStatus(online) {
+    document.getElementById('statusDot').className = `status-dot ${online ? 'online' : 'offline'}`;
+    document.getElementById('statusText').textContent = online ? 'Online' : 'Offline';
+}
+
+socket.on('private message', async (msg) => {
+    if (msg.fromUserId === chatWithId || msg.toUserId === chatWithId) {
+        if (msg.fromUserId === myUserId) return; // já foi adicionada localmente
+        let text = '';
+        try {
+            const decrypted = await decryptMessage(msg.encryptedContent, myPrivateKey);
+            text = msg.isAudio ? '🎤 Áudio recebido' : decrypted;
+        } catch(e) {
+            text = '🔒 Mensagem criptografada';
+        }
+        addMessageLocal(text, false, msg.ttl || 0);
+    }
+});
+
+socket.on('message expired', ({ messageId }) => {
+    document.querySelectorAll('.msg-line .balloon').forEach(el => {
+        const timer = el.querySelector('.timer-badge');
+        if (timer) {
+            timer.textContent = '🔥 expirado';
+            el.style.opacity = '0.4';
+        }
+    });
+});
+
+// ===============================================
+// INICIALIZAR
+// ===============================================
+loadPartnerPublicKey();
+loadMessages();
+
+// Atualiza status inicial
+fetch(`/api/users/status?ids=${chatWithId}`).then(r => r.json()).then(data => {
+    updateStatus(data[chatWithId] || false);
+});
+
+// Atualiza avatar
+fetch('/api/users').then(r => r.json()).then(users => {
+    const u = users.find(u => u.id == chatWithId);
+    if (u && u.avatar_url) document.getElementById('chatAvatar').src = u.avatar_url;
+});
+
+console.log('🚀 Chat privado inicializado');
+console.log('📱 Meu ID:', myUserId);
+console.log('👤 Conversando com:', chatWithId);
+</script>
+</body>
+</html>

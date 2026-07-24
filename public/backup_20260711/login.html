@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Papalegua</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{height:100%;background:#0d1117;font-family:'Segoe UI',Roboto,system-ui;display:flex;align-items:center;justify-content:center}
+        .card{width:100%;max-width:380px;padding:28px 24px;background:#111827;border-radius:16px;border:1px solid #1e293b;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+        .logo{text-align:center;margin-bottom:24px}
+        .logo-icon{width:56px;height:56px;background:linear-gradient(135deg,#d4af37,#f3e5ab);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px}
+        .logo h1{font-size:22px;font-weight:700;color:#f1f5f9}
+        .logo p{font-size:13px;color:#64748b;margin-top:3px}
+        .form-group{margin-bottom:14px}
+        .form-group label{display:block;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+        .form-group input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #1e293b;background:#0d1117;color:#f1f5f9;font-size:14px;outline:none;transition:border-color .2s}
+        .form-group input:focus{border-color:#d4af37}
+        .btn{width:100%;padding:12px;border-radius:10px;border:none;font-weight:700;font-size:15px;cursor:pointer;transition:all .2s;margin-top:4px}
+        .btn-primary{background:linear-gradient(135deg,#d4af37,#b8962e);color:#111827}
+        .btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(212,175,55,0.3)}
+        .divider{text-align:center;color:#374151;font-size:13px;margin:14px 0;position:relative}
+        .divider::before{content:'';position:absolute;top:50%;left:0;right:0;height:1px;background:#1e293b}
+        .divider span{background:#111827;padding:0 10px;position:relative}
+        .link-btn{text-align:center;font-size:13px;color:#64748b;margin-top:4px}
+        .link-btn a{color:#d4af37;text-decoration:none;font-weight:600}
+        .error-msg{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}
+        .update-banner{background:linear-gradient(135deg,#1a2332,#2a1a3a);border:1px solid #d4af37;border-radius:12px;padding:16px;margin-bottom:16px;text-align:center;display:none}
+        .update-banner .icon{font-size:32px;margin-bottom:8px}
+        .update-banner .title{color:#f1f5f9;font-weight:700;font-size:16px}
+        .update-banner .desc{color:#94a3b8;font-size:13px;margin:4px 0 12px}
+        .update-banner .btn-download{background:linear-gradient(135deg,#d4af37,#b8962e);color:#111827;padding:8px 24px;border-radius:10px;text-decoration:none;font-weight:700;display:inline-block}
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="logo"><div class="logo-icon">💬</div><h1>Papalegua</h1><p>Seu chat seguro e privado</p></div>
+    
+    <div class="update-banner" id="updateBanner">
+        <div class="icon">📱</div>
+        <div class="title" id="updateTitle">Nova versão disponível!</div>
+        <div class="desc" id="updateDesc">Atualize para a versão mais recente</div>
+        <a class="btn-download" id="updateLink" href="#" download>📥 Baixar APK</a>
+    </div>
+    
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="form-group"><label>Usuário ou E-mail</label><input type="text" id="username" placeholder="Digite seu usuário" autocomplete="username"></div>
+    <div class="form-group"><label>Senha</label><input type="password" id="password" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="btn btn-primary" id="loginBtn">Entrar</button>
+    <div class="divider"><span>ou</span></div>
+    <div class="link-btn"><a href="/register.html">Criar conta nova</a></div>
+</div>
+
+<script>
+let updateChecked = false;
+
+function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+async function doLogin() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) { showError('Preencha todos os campos'); return; }
+    document.getElementById('loginBtn').textContent = 'Entrando...';
+    document.getElementById('loginBtn').disabled = true;
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (res.ok) { window.location.href = '/contacts.html'; }
+        else { showError(data.error || 'Credenciais inválidas'); }
+    } catch(e) { showError('Erro de conexão. Tente novamente.'); }
+    document.getElementById('loginBtn').textContent = 'Entrar';
+    document.getElementById('loginBtn').disabled = false;
+}
+
+document.getElementById('loginBtn').onclick = doLogin;
+['username','password'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+});
+
+// ===== VERIFICAR ATUALIZAÇÃO APENAS UMA VEZ =====
+async function checkForUpdates() {
+    if (updateChecked) return;
+    updateChecked = true;
+    
+    try {
+        const res = await fetch('/api/version');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.hasUpdate && data.apkUrl) {
+            const banner = document.getElementById('updateBanner');
+            document.getElementById('updateTitle').textContent = '📱 Nova versão ' + data.version + ' disponível!';
+            document.getElementById('updateDesc').textContent = data.releaseNotes || 'Atualize para a versão mais recente.';
+            document.getElementById('updateLink').href = data.apkUrl;
+            banner.style.display = 'block';
+        }
+    } catch(e) {
+        console.error('Erro ao verificar atualizações:', e);
+    }
+}
+
+// Executar apenas uma vez
+setTimeout(checkForUpdates, 1000);
+</script>
+</body>
+</html>

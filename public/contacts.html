@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Contatos - Papalegua</title>
+    <style>
+        :root {
+            --bg-body: #fcf7f0;
+            --bg-container: #fffaf3;
+            --bg-header: #f5ede2;
+            --bg-input: #fefcf8;
+            --text-primary: #3d2b1f;
+            --text-secondary: #7a5a3c;
+            --text-muted: #a0846a;
+            --border-color: #e6d5c0;
+            --accent-gold: #d4af37;
+            --accent-orange: #e67e22;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: var(--bg-body); display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 600px; height: 100vh; background: var(--bg-container); display: flex; flex-direction: column; overflow: hidden; }
+        
+        header { background: var(--bg-header); padding: 14px 16px; border-bottom: 2px solid var(--accent-gold); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+        .logo { font-size: 20px; font-weight: 700; color: var(--accent-gold); display: flex; align-items: center; gap: 8px; }
+        .logo small { font-size: 12px; font-weight: 400; color: var(--text-muted); }
+        .user-actions { display: flex; gap: 4px; }
+        .user-actions button { background: rgba(212,175,55,0.12); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 6px 10px; border-radius: 10px; cursor: pointer; font-size: 14px; transition: all .2s; }
+        .user-actions button:hover { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        
+        .nav-menu { background: var(--bg-header); padding: 6px 12px; display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
+        .nav-menu a { 
+            padding: 8px 14px; 
+            border-radius: 10px; 
+            text-decoration: none; 
+            font-size: 13px; 
+            font-weight: 500; 
+            color: var(--text-secondary); 
+            transition: all .2s; 
+            display: flex; 
+            align-items: center; 
+            gap: 6px;
+            flex: 1;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .nav-menu a:hover { background: rgba(212,175,55,0.1); color: var(--text-primary); }
+        .nav-menu a.active { background: var(--accent-gold); color: #fff; }
+        
+        .user-id-bar { background: var(--bg-input); padding: 8px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .user-id-bar .id-label { font-size: 11px; color: var(--text-muted); }
+        .user-id-bar .id-value { font-size: 12px; font-weight: 600; color: var(--text-primary); font-family: monospace; word-break: break-all; flex: 1; }
+        .user-id-bar .id-actions { display: flex; gap: 4px; }
+        .user-id-bar .id-actions button { background: none; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; color: var(--text-secondary); transition: all .2s; }
+        .user-id-bar .id-actions button:hover { background: var(--accent-gold); color: #fff; border-color: var(--accent-gold); }
+        
+        .search-bar { background: var(--bg-input); margin: 10px 14px; padding: 8px 14px; border-radius: 22px; border: 1px solid var(--border-color); display: flex; gap: 8px; align-items: center; }
+        .search-bar input { background: none; border: none; outline: none; flex: 1; font-size: 14px; color: var(--text-primary); }
+        .search-bar input::placeholder { color: var(--text-muted); }
+        
+        .contacts-list { flex: 1; overflow-y: auto; padding: 0 10px 10px; }
+        .contacts-list::-webkit-scrollbar { width: 3px; }
+        .contacts-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        
+        .contact-item { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; transition: background .15s; border-bottom: 1px solid var(--border-color); }
+        .contact-item:active { background: var(--bg-header); }
+        .contact-item .avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color); background: var(--bg-header); flex-shrink: 0; }
+        .contact-item .info { flex: 1; min-width: 0; }
+        .contact-item .info .name { font-size: 15px; font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .contact-item .info .name .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .contact-item .info .name .status-dot.online { background: #22c55e; }
+        .contact-item .info .name .status-dot.offline { background: #b0a090; }
+        .contact-item .info .last-msg { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .contact-item .info .unread { background: var(--accent-gold); color: #fff; font-size: 11px; font-weight: 700; padding: 0 8px; border-radius: 10px; min-width: 18px; text-align: center; }
+        
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 10px; display: block; }
+        .empty-state .title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .empty-state .sub { font-size: 13px; color: var(--text-muted); }
+        .empty-state .btn-primary { background: var(--accent-gold); color: #fff; border: none; padding: 10px 24px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 12px; transition: all .2s; }
+        .empty-state .btn-primary:hover { background: var(--accent-orange); transform: translateY(-2px); }
+        
+        .btn-orange { background: var(--accent-orange); color: #fff; border: none; padding: 10px 24px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 12px; transition: all .2s; }
+        .btn-orange:hover { background: #d35400; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="logo">🚗 Papalegua <small>anônimo</small></div>
+        <div class="user-actions">
+            <button onclick="window.location.href='/profile.html'" title="Perfil">👤</button>
+            <button onclick="logout()" title="Sair">🚪</button>
+        </div>
+    </header>
+
+    <div class="nav-menu">
+        <a href="#" class="active" onclick="switchTab('mensagens')">💬 Mensagens</a>
+        <a href="#" onclick="switchTab('grupos')">👥 Grupos</a>
+        <a href="#" onclick="switchTab('comunidades')">🌐 Comunidades</a>
+        <a href="#" onclick="window.location.href='/qrcode.html'">📱 Meu QR</a>
+        <a href="#" onclick="window.location.href='/qr-scanner.html'">📷 Escanear</a>
+    </div>
+
+    <div class="user-id-bar">
+        <span class="id-label">🆔 Seu ID:</span>
+        <span class="id-value" id="userIdDisplay">carregando...</span>
+        <div class="id-actions">
+            <button onclick="copyId()" title="Copiar ID">📋</button>
+            <button onclick="window.location.href='/qrcode.html'" title="QR Code">📱</button>
+        </div>
+    </div>
+
+    <div class="search-bar">
+        <span>🔍</span>
+        <input type="text" id="searchInput" placeholder="Buscar contato..." oninput="filterContacts()">
+    </div>
+
+    <div class="contacts-list" id="contactsList">
+        <div class="empty-state">
+            <span class="icon">👥</span>
+            <div class="title">Nenhum contato</div>
+            <div class="sub">Adicione amigos para começar a conversar</div>
+            <button class="btn-primary" onclick="window.location.href='/add-contact.html'">➕ Adicionar contato</button>
+            <br>
+            <button class="btn-orange" onclick="window.location.href='/qr-scanner.html'">📷 Escanear QR</button>
+        </div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const myId = localStorage.getItem('userId');
+
+function logout() {
+    if (confirm('Tem certeza que quer sair?')) {
+        localStorage.clear();
+        window.location.href = '/login.html';
+    }
+}
+
+function copyId() {
+    const id = document.getElementById('userIdDisplay').textContent;
+    if (!id || id === 'carregando...') return;
+    navigator.clipboard.writeText(id).then(() => alert('✅ ID copiado!'))
+        .catch(() => {
+            const t = document.createElement('textarea');
+            t.value = id;
+            document.body.appendChild(t);
+            t.select();
+            document.execCommand('copy');
+            document.body.removeChild(t);
+            alert('✅ ID copiado!');
+        });
+}
+
+function switchTab(tab) {
+    document.querySelectorAll('.nav-menu a').forEach(el => el.classList.remove('active'));
+    const tabs = { 'mensagens':0, 'grupos':1, 'comunidades':2 };
+    const idx = tabs[tab] || 0;
+    document.querySelectorAll('.nav-menu a')[idx].classList.add('active');
+    if (tab === 'grupos') window.location.href = '/groups.html';
+    else if (tab === 'comunidades') window.location.href = '/communities.html';
+    else loadContacts();
+}
+
+async function loadContacts() {
+    try {
+        const res = await fetch('/api/users');
+        const allUsers = await res.json();
+        let contacts = JSON.parse(localStorage.getItem('contacts') || '[]');
+        if (contacts.length === 0 && allUsers.length > 0) {
+            const others = allUsers.filter(u => u.id !== myId);
+            if (others.length > 0) {
+                contacts = [others[0].id];
+                localStorage.setItem('contacts', JSON.stringify(contacts));
+            }
+        }
+        const users = allUsers.filter(u => contacts.includes(u.id));
+        const list = document.getElementById('contactsList');
+        list.innerHTML = '';
+        if (users.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <span class="icon">👥</span>
+                    <div class="title">Nenhum contato</div>
+                    <div class="sub">Adicione amigos para começar a conversar</div>
+                    <button class="btn-primary" onclick="window.location.href='/add-contact.html'">➕ Adicionar contato</button>
+                    <br>
+                    <button class="btn-orange" onclick="window.location.href='/qr-scanner.html'">📷 Escanear QR</button>
+                </div>
+            `;
+            return;
+        }
+        let unread = {};
+        try {
+            const unreadRes = await fetch('/api/unread-counts');
+            if (unreadRes.ok) unread = await unreadRes.json();
+        } catch(e) { console.warn('Unread fetch failed'); }
+        const ids = users.map(u => u.id).join(',');
+        const statusRes = await fetch(`/api/users/status?ids=${ids}`);
+        const status = await statusRes.json();
+        users.forEach(user => {
+            const div = document.createElement('div');
+            div.className = 'contact-item';
+            div.dataset.id = user.id;
+            div.dataset.name = user.username || user.id;
+            const avatarUrl = user.avatar_url || '/uploads/avatars/default.svg';
+            const isOnline = status[user.id] || false;
+            const unreadCount = unread[user.id] || 0;
+            div.innerHTML = `
+                <img class="avatar" src="${avatarUrl}" onerror="this.src='/uploads/avatars/default.svg'">
+                <div class="info">
+                    <div class="name">
+                        ${user.username || 'Anônimo'}
+                        <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
+                        ${unreadCount > 0 ? `<span class="unread">${unreadCount}</span>` : ''}
+                    </div>
+                    <div class="last-msg" id="last-${user.id}">Clique para conversar</div>
+                </div>
+            `;
+            div.onclick = () => {
+                localStorage.setItem('chatWithId', user.id);
+                localStorage.setItem('chatWithName', user.username || user.id);
+                window.location.href = '/private-chat.html';
+            };
+            list.appendChild(div);
+            fetch(`/api/private-messages?withUserId=${user.id}`).then(r => r.json()).then(msgs => {
+                if (msgs.length > 0) {
+                    const last = msgs[msgs.length-1];
+                    const text = last.type === 'audio' ? '🎤 Áudio' : last.type === 'file' ? '📎 Arquivo' : last.text || '';
+                    document.getElementById(`last-${user.id}`).textContent = text.substring(0, 40);
+                }
+            }).catch(() => {});
+        });
+    } catch(e) { console.error('Erro ao carregar contatos:', e); }
+}
+
+function filterContacts() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('.contact-item').forEach(el => {
+        const name = (el.dataset.name || '').toLowerCase();
+        el.style.display = name.includes(q) ? 'flex' : 'none';
+    });
+}
+
+async function loadUserId() {
+    try {
+        const res = await fetch('/api/me');
+        const data = await res.json();
+        document.getElementById('userIdDisplay').textContent = data.id || '--';
+    } catch(e) { document.getElementById('userIdDisplay').textContent = '--'; }
+}
+
+window.addContact = function(userId) {
+    const contacts = JSON.parse(localStorage.getItem('contacts') || '[]');
+    if (!contacts.includes(userId)) {
+        contacts.push(userId);
+        localStorage.setItem('contacts', JSON.stringify(contacts));
+        loadContacts();
+        return true;
+    }
+    return false;
+};
+
+socket.on('user online', ({ userId }) => {
+    document.querySelectorAll(`.contact-item[data-id="${userId}"] .status-dot`).forEach(d => d.className = 'status-dot online');
+});
+socket.on('user offline', ({ userId }) => {
+    document.querySelectorAll(`.contact-item[data-id="${userId}"] .status-dot`).forEach(d => d.className = 'status-dot offline');
+});
+socket.on('private message', () => loadContacts());
+
+loadContacts();
+loadUserId();
+</script>
+</body>
+</html>
