@@ -10,3 +10,6 @@ data/
 *.log
 .env
 ```
+public/.env.save
+public/backup_*
+node_modules/
