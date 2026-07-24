@@ -13,3 +13,7 @@ data/
 public/.env.save
 public/backup_*
 node_modules/
+*.bak
+*.backup*
+*.erro*
+server.js.*
